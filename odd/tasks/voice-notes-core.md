@@ -49,11 +49,11 @@ rompe la app: se arranca con datos vacíos.
 
 | ID | Specs | Ruta | Estado |
 |---|---|---|---|
-| T1 | S10, S9, S7, S8, S6 | inline | pendiente |
-| T2 | S1 | inline | pendiente |
-| T3 | S2, S3, S4 | inline | pendiente |
-| T4 | S5 | inline | pendiente |
-| T5 | build + firma | inline | pendiente |
+| T1 | S10, S9, S7, S8, S6 | inline | ✅ 6192e21 |
+| T2 | S1 | inline | ✅ e6cb9d4 |
+| T3 | S2, S3, S4 | inline | ✅ e6cb9d4 |
+| T4 | S5 | inline | ✅ e6cb9d4 |
+| T5 | build + firma | inline | ✅ APK 1.4 MB firmado v2/v3 |
 
 ## Log
 
