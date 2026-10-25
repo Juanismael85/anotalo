@@ -61,12 +61,13 @@ class NotesRepository(
 
   // ---- notes -------------------------------------------------------------
 
-  fun createTextNote(title: String, body: String): Note {
+  fun createTextNote(title: String, body: String, folderId: String? = null): Note {
     val now = clock()
     val note = Note(
       id = newId("note"),
       title = title,
       body = body,
+      folderId = folderId,
       createdAt = now,
       updatedAt = now,
     )
@@ -74,12 +75,13 @@ class NotesRepository(
     return note
   }
 
-  fun createAudioNote(audioPath: String, durationMs: Long): Note {
+  fun createAudioNote(audioPath: String, durationMs: Long, folderId: String? = null): Note {
     val now = clock()
     val note = Note(
       id = newId("note"),
       audioPath = audioPath,
       durationMs = durationMs,
+      folderId = folderId,
       createdAt = now,
       updatedAt = now,
     )

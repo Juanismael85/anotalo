@@ -21,13 +21,17 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
@@ -42,6 +46,9 @@ import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -56,8 +63,10 @@ import com.voicenotes.app.data.Tag
 import com.voicenotes.app.ui.NotesViewModel
 import com.voicenotes.app.ui.components.EmptyState
 import com.voicenotes.app.ui.components.ScreenGradient
+import com.voicenotes.app.ui.components.appFilterChipColors
 import com.voicenotes.app.ui.components.formatDate
 import com.voicenotes.app.ui.components.formatDuration
+import com.voicenotes.app.ui.theme.ThemeMode
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -75,6 +84,8 @@ fun HomeScreen(
   val folderFilter by viewModel.folderFilter.collectAsStateWithLifecycle()
   val tagFilter by viewModel.tagFilter.collectAsStateWithLifecycle()
   val total by viewModel.totalNotes.collectAsStateWithLifecycle()
+  val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
+  var themeMenuOpen by remember { mutableStateOf(false) }
 
   Scaffold(
     containerColor = Color.Transparent,
@@ -91,6 +102,30 @@ fun HomeScreen(
           }
         },
         actions = {
+          Box {
+            IconButton(onClick = { themeMenuOpen = true }) {
+              Icon(Icons.Filled.Palette, contentDescription = "Cambiar tema")
+            }
+            DropdownMenu(
+              expanded = themeMenuOpen,
+              onDismissRequest = { themeMenuOpen = false },
+            ) {
+              ThemeMode.entries.forEach { mode ->
+                DropdownMenuItem(
+                  text = { Text(mode.label) },
+                  leadingIcon = {
+                    if (mode == themeMode) {
+                      Icon(Icons.Filled.Check, contentDescription = null)
+                    }
+                  },
+                  onClick = {
+                    viewModel.setThemeMode(mode)
+                    themeMenuOpen = false
+                  },
+                )
+              }
+            }
+          }
           IconButton(onClick = onOpenLibrary) {
             Icon(Icons.Filled.Folder, contentDescription = "Carpetas y etiquetas")
           }
@@ -176,6 +211,11 @@ private fun SearchField(query: String, onQueryChange: (String) -> Unit) {
       unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
       focusedIndicatorColor = Color.Transparent,
       unfocusedIndicatorColor = Color.Transparent,
+      focusedTextColor = MaterialTheme.colorScheme.onSurface,
+      unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+      cursorColor = MaterialTheme.colorScheme.primary,
+      focusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
+      unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
     ),
   )
 }
@@ -201,6 +241,7 @@ private fun FilterRow(
             selected = folderFilter == null,
             onClick = { onFolderFilter(null) },
             label = { Text("Todas") },
+            colors = appFilterChipColors(),
           )
         }
         items(folders, key = { it.id }) { folder ->
@@ -208,6 +249,7 @@ private fun FilterRow(
             selected = folderFilter == folder.id,
             onClick = { onFolderFilter(if (folderFilter == folder.id) null else folder.id) },
             label = { Text(folder.name) },
+            colors = appFilterChipColors(),
           )
         }
       }
@@ -222,6 +264,7 @@ private fun FilterRow(
             selected = tagFilter == tag.id,
             onClick = { onTagFilter(if (tagFilter == tag.id) null else tag.id) },
             label = { Text("#${tag.name}") },
+            colors = appFilterChipColors(),
           )
         }
       }
@@ -243,6 +286,9 @@ private fun NoteCard(
     shape = RoundedCornerShape(20.dp),
     colors = CardDefaults.cardColors(
       containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+      // An alpha-modified container is not in the scheme, so contentColorFor() would
+      // fall back to black; set it explicitly so titles stay readable.
+      contentColor = MaterialTheme.colorScheme.onSurface,
     ),
   ) {
     Row(

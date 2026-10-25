@@ -3,6 +3,7 @@ package com.voicenotes.app
 import com.voicenotes.app.data.Library
 import com.voicenotes.app.data.NotesRepository
 import com.voicenotes.app.data.Storage
+import com.voicenotes.app.ui.theme.ThemeMode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -210,5 +211,47 @@ class NotesRepositoryTest {
 
     val library: Library = repo.state.value
     assertEquals("segunda", library.notes.first().title)
+  }
+
+  // S12 — a note created from a filtered folder is filed into that folder
+  @Test
+  fun `audio note created with a folder id lands in that folder`() {
+    val work = repo.createFolder("Trabajo")
+
+    repo.createAudioNote(audioPath = "/tmp/a.m4a", durationMs = 1000, folderId = work.id)
+
+    assertEquals(1, repo.visibleNotes(work.id, null, "").size)
+  }
+
+  @Test
+  fun `text note created with a folder id lands in that folder`() {
+    val work = repo.createFolder("Trabajo")
+
+    repo.createTextNote(title = "x", body = "", folderId = work.id)
+
+    assertEquals(1, repo.visibleNotes(work.id, null, "").size)
+  }
+
+  @Test
+  fun `note created without a folder stays unfiled`() {
+    repo.createAudioNote(audioPath = "/tmp/a.m4a", durationMs = 1000)
+    assertNull(repo.state.value.notes.first().folderId)
+  }
+
+  // S11 — theme selection is a pure value
+  @Test
+  fun `theme mode parses known keys and falls back to dark`() {
+    assertEquals(ThemeMode.LIGHT, ThemeMode.fromKey("light"))
+    assertEquals(ThemeMode.DARK, ThemeMode.fromKey("dark"))
+    assertEquals(ThemeMode.AMOLED, ThemeMode.fromKey("amoled"))
+    assertEquals(ThemeMode.DARK, ThemeMode.fromKey("cualquier cosa"))
+    assertEquals(ThemeMode.DARK, ThemeMode.fromKey(null))
+  }
+
+  @Test
+  fun `theme mode cycles light dark amoled`() {
+    assertEquals(ThemeMode.DARK, ThemeMode.next(ThemeMode.LIGHT))
+    assertEquals(ThemeMode.AMOLED, ThemeMode.next(ThemeMode.DARK))
+    assertEquals(ThemeMode.LIGHT, ThemeMode.next(ThemeMode.AMOLED))
   }
 }

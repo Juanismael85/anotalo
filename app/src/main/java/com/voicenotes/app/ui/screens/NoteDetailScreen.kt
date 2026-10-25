@@ -66,6 +66,7 @@ import com.voicenotes.app.speech.rememberDictation
 import com.voicenotes.app.ui.NotesViewModel
 import com.voicenotes.app.ui.components.ScreenGradient
 import com.voicenotes.app.ui.components.formatDate
+import com.voicenotes.app.ui.components.appFilterChipColors
 import com.voicenotes.app.ui.components.formatDuration
 import kotlinx.coroutines.delay
 
@@ -146,12 +147,19 @@ fun NoteDetailScreen(
         onValueChange = { title = it },
         modifier = Modifier.fillMaxWidth(),
         placeholder = { Text("Título") },
-        textStyle = MaterialTheme.typography.headlineSmall,
+        textStyle = MaterialTheme.typography.headlineSmall.copy(
+          color = MaterialTheme.colorScheme.onSurface,
+        ),
         colors = TextFieldDefaults.colors(
           focusedContainerColor = Color.Transparent,
           unfocusedContainerColor = Color.Transparent,
           focusedIndicatorColor = Color.Transparent,
           unfocusedIndicatorColor = Color.Transparent,
+          focusedTextColor = MaterialTheme.colorScheme.onSurface,
+          unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+          cursorColor = MaterialTheme.colorScheme.primary,
+          focusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
+          unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
         ),
       )
 
@@ -172,6 +180,11 @@ fun NoteDetailScreen(
           unfocusedContainerColor = Color.Transparent,
           focusedIndicatorColor = Color.Transparent,
           unfocusedIndicatorColor = Color.Transparent,
+          focusedTextColor = MaterialTheme.colorScheme.onSurface,
+          unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+          cursorColor = MaterialTheme.colorScheme.primary,
+          focusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
+          unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
         ),
       )
 
@@ -225,6 +238,7 @@ fun NoteDetailScreen(
               selected = note.tagIds.contains(tag.id),
               onClick = { viewModel.toggleTag(noteId, tag.id) },
               label = { Text("#${tag.name}") },
+              colors = appFilterChipColors(),
             )
           }
         }
@@ -271,6 +285,7 @@ private fun TranscriptCard(
     shape = RoundedCornerShape(20.dp),
     colors = CardDefaults.cardColors(
       containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+      contentColor = MaterialTheme.colorScheme.onSurface,
     ),
   ) {
     Column(Modifier.fillMaxWidth().padding(16.dp)) {
@@ -285,6 +300,7 @@ private fun TranscriptCard(
           onClick = onDictate,
           label = { Text(if (listening) "Escuchando…" else "Dictar") },
           leadingIcon = { Icon(Icons.Filled.Mic, contentDescription = null) },
+          colors = appFilterChipColors(),
         )
       }
       Spacer(Modifier.height(8.dp))
@@ -342,6 +358,7 @@ private fun AudioPlayerCard(path: String, fallbackDuration: Long) {
     shape = RoundedCornerShape(20.dp),
     colors = CardDefaults.cardColors(
       containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+      contentColor = MaterialTheme.colorScheme.onSurface,
     ),
   ) {
     Row(

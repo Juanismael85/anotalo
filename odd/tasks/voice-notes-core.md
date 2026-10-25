@@ -45,6 +45,21 @@ en título, cuerpo y transcripción. Sin coincidencias muestra: "No hay notas qu
 `filesDir/notes.json` y sobreviven al reinicio. Un archivo corrupto o ausente no
 rompe la app: se arranca con datos vacíos.
 
+**S11 — Tres modos de tema.** Un botón en la barra superior (ícono de paleta) abre un menú
+con las tres opciones exactas: "Modo claro", "Modo oscuro", "Negro puro" (fondo `#000000`).
+La opción activa se marca con un tilde. La elección se persiste en
+`SharedPreferences("voice_notes_settings", "theme_mode")` y sobrevive al reinicio.
+
+**S12 — La nota nueva hereda el filtro de carpeta.** Si hay una carpeta seleccionada en
+Notas y se graba una nota (o se crea una nota escrita), la nota queda asignada a esa
+carpeta y aparece al filtrar por ella.
+
+**S13 — Contraste de texto en los tres modos.** Títulos, cuerpos, transcripciones y chips
+usan colores derivados del esquema activo. Ningún texto queda negro sobre fondo oscuro:
+los `Card` con `containerColor` modificado con alfa declaran `contentColor` explícito,
+porque `contentColorFor()` no reconoce un color que no está en el esquema y cae a negro.
+Los chips seleccionados usan `primaryContainer`/`onPrimaryContainer`, no el verde secundario.
+
 ## Tasks
 
 | ID | Specs | Ruta | Estado |
@@ -55,6 +70,8 @@ rompe la app: se arranca con datos vacíos.
 | T4 | S5 | inline | ✅ e6cb9d4 |
 | T5 | build + firma | inline | ✅ APK 1.6 MB firmado v2/v3 |
 | T6 | tipografía empaquetada + slider | inline | ✅ instalado 16:59 |
+| T7 | S12 | inline | ✅ RED `No parameter with name 'folderId'` → 22 tests verdes |
+| T8 | S11, S13 | inline | ✅ verificado en los tres modos por screenshot |
 
 ## Log
 
@@ -106,3 +123,41 @@ track inactivo gris) porque el default se veía verde. Release final: 1.6 MB fir
 **L14 — Límite restante.** El audio no se puede *escuchar* desde acá: se verificó que
 `MediaPlayer` carga y reporta duración, pero la salida por parlante no es observable vía
 ADB. La búsqueda y los filtros están cubiertos por tests JVM, no por interacción en pantalla.
+
+**L15 — Reporte del usuario (25 oct).** "en el nombre de la nota esta la letra de color negro y
+no se logra ver bien, otro detalle creo la carpeta pero al grabar en esa carpeta no se guarda
+alli, tengo que verla en el apartado de todas pero en la carpeta no se guarda, puedes agregarle
+un boton tambien de modo claro modo oscuro y negro puro, y que el color de las letras sean
+acordes a cada uno".
+
+**L16 — Causa raíz del texto negro.** No era el `TextField`: era `CardDefaults.cardColors(
+containerColor = surfaceVariant.copy(alpha = 0.35f))`. `contentColorFor()` resuelve el color de
+contenido buscando el `containerColor` dentro del `ColorScheme`; un color con alfa modificado no
+coincide con ninguno y la función devuelve `Color.Unspecified`, que termina resolviendo a negro.
+Solución: declarar `contentColor = MaterialTheme.colorScheme.onSurface` en cada `Card` con
+contenedor modificado (HomeScreen, NoteDetailScreen ×2, LibraryScreen ×2), más colores explícitos
+de texto/cursor/placeholder en todos los `TextField` y `.copy(color = onSurface)` en el
+`textStyle` del título. Verificado por screenshot: los títulos pasan de casi negros a blancos.
+
+**L17 — Carpeta al grabar.** `createTextNote`/`createAudioNote` del repositorio aceptan
+`folderId: String? = null` y el ViewModel pasa `_folderFilter.value`. RED observado primero
+(`No parameter with name 'folderId' found`), luego 22 tests JVM verdes (S5–S12). Confirmado en
+el dispositivo: dos grabaciones hechas con la carpeta "juanillo" activa aparecen como
+"00:01 · juanillo · 25 oct · 17:42" y "17:51" dentro del filtro.
+
+**L18 — Temas.** `ThemeMode` (light/dark/amoled) vive en un archivo sin imports de Compose para
+ser testeable en JVM, con `fromKey` (fallback a DARK) y `next`. Tres `ColorScheme` completos en
+`Theme.kt` y persistencia en SharedPreferences. El menú de la barra superior muestra las tres
+opciones con tilde en la activa; verificado en dispositivo en los tres modos.
+
+**L19 — Chips.** Los `FilterChip` seleccionados usaban `secondaryContainer` (verde/cian) y
+rompían la coherencia con el acento violeta. Se centralizó en `appFilterChipColors()`:
+`primaryContainer`/`onPrimaryContainer` al seleccionar, `surfaceVariant` al 35% sin seleccionar.
+
+**L20 — Límite de plataforma (barra de estado).** En modo claro, HyperOS (V816) dibuja la barra
+de estado como un panel negro con esquinas inferiores redondeadas y íconos blancos, porque el
+tema **del sistema** está en oscuro. Evidencia: la ventana de la app es fullscreen
+(`frame=[0,0][1080,2400]`), `vsysui=LIGHT_STATUS_BAR` está solicitado, `FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS`
+limpiado y el artefacto persiste tras rotar y reiniciar; con el fondo de la app en rojo puro el
+rojo llega hasta arriba, así que la app sí pinta debajo y es SystemUI quien lo tapa. No se puede
+corregir desde la app sin permisos de sistema. La barra de navegación sí sigue al tema.

@@ -8,6 +8,7 @@ import com.voicenotes.app.data.Folder
 import com.voicenotes.app.data.Note
 import com.voicenotes.app.data.NotesRepository
 import com.voicenotes.app.data.Tag
+import com.voicenotes.app.ui.theme.ThemeMode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -35,8 +36,21 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
   private val _recording = MutableStateFlow(false)
   val recording: StateFlow<Boolean> = _recording.asStateFlow()
 
+  private val preferences =
+    application.getSharedPreferences("voice_notes_settings", android.content.Context.MODE_PRIVATE)
+
+  private val _themeMode = MutableStateFlow(
+    ThemeMode.fromKey(preferences.getString(KEY_THEME, null)),
+  )
+  val themeMode: StateFlow<ThemeMode> = _themeMode.asStateFlow()
+
   init {
     repository.load()
+  }
+
+  fun setThemeMode(mode: ThemeMode) {
+    _themeMode.value = mode
+    preferences.edit().putString(KEY_THEME, mode.key).apply()
   }
 
   val notes: StateFlow<List<Note>> =
@@ -89,9 +103,11 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
     _recording.value = value
   }
 
-  fun createTextNote(title: String, body: String): Note = repository.createTextNote(title, body)
+  fun createTextNote(title: String, body: String): Note =
+    repository.createTextNote(title, body, _folderFilter.value)
 
-  fun createAudioNote(path: String, durationMs: Long): Note = repository.createAudioNote(path, durationMs)
+  fun createAudioNote(path: String, durationMs: Long): Note =
+    repository.createAudioNote(path, durationMs, _folderFilter.value)
 
   fun updateNote(id: String, title: String, body: String) = repository.updateNote(id, title, body)
 
@@ -106,4 +122,8 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
   fun createFolder(name: String): Folder = repository.createFolder(name)
 
   fun createTag(name: String): Tag = repository.createTag(name)
+
+  private companion object {
+    const val KEY_THEME = "theme_mode"
+  }
 }

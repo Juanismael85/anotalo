@@ -96,6 +96,11 @@ fun LibraryScreen(viewModel: NotesViewModel, onBack: () -> Unit) {
             unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
             focusedIndicatorColor = Color.Transparent,
             unfocusedIndicatorColor = Color.Transparent,
+            focusedTextColor = MaterialTheme.colorScheme.onSurface,
+            unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+            cursorColor = MaterialTheme.colorScheme.primary,
+            focusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
           ),
         )
         TextButton(
@@ -129,6 +134,7 @@ fun LibraryScreen(viewModel: NotesViewModel, onBack: () -> Unit) {
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(
                   containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                  contentColor = MaterialTheme.colorScheme.onSurface,
                 ),
               ) {
                 Row(
@@ -161,6 +167,7 @@ fun LibraryScreen(viewModel: NotesViewModel, onBack: () -> Unit) {
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(
                   containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                  contentColor = MaterialTheme.colorScheme.onSurface,
                 ),
               ) {
                 Row(
