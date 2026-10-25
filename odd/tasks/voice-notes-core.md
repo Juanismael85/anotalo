@@ -53,7 +53,8 @@ rompe la app: se arranca con datos vacíos.
 | T2 | S1 | inline | ✅ e6cb9d4 |
 | T3 | S2, S3, S4 | inline | ✅ e6cb9d4 |
 | T4 | S5 | inline | ✅ e6cb9d4 |
-| T5 | build + firma | inline | ✅ APK 1.4 MB firmado v2/v3 |
+| T5 | build + firma | inline | ✅ APK 1.6 MB firmado v2/v3 |
+| T6 | tipografía empaquetada + slider | inline | ✅ instalado 16:59 |
 
 ## Log
 
@@ -76,3 +77,32 @@ export PDF. La transcripción es por dictado del sistema (`SpeechRecognizer`), s
 
 **L6 — Persistencia elegida.** JSON con `kotlinx.serialization` en vez de Room/KSP: elimina
 el riesgo de incompatibilidad de KSP con Kotlin 2.4.21 y permite testear la lógica en JVM puro.
+
+**L10 — Runtime verificado en el dispositivo real.** `adb connect 127.0.0.1:5554`
+(ADB por Wi-Fi) → Redmi `23129RA5FL`, Android 15 (SDK 35), arm64-v8a, HyperOS V816.
+APK release instalado y ejecutado: `topResumedActivity = com.voicenotes.app/.MainActivity`,
+`logcat -b crash` vacío para el paquete.
+
+**L11 — Evidencia funcional observada.** Nota real creada en el teléfono a las 16:25:
+grabación de **00:05** con transcripción por `SpeechRecognizer` de 13 palabras
+("Hola cómo estás Esta es una nota importante para que se guarde como debe ser").
+Esto prueba S2 (grabación), S4 (el reproductor cargó el archivo real: duración 00:05)
+y S5 (dictado). Los datos sobrevivieron **tres reinstalaciones** (`install -r`, misma
+clave de firma), lo que prueba S10 en el dispositivo.
+
+**L12 — Defecto encontrado y corregido: tipografía serif.** La app renderizaba con una
+tipografía serif. Causa raíz: el teléfono tiene un **tema de fuente del sistema** que
+reasigna el alias `sans-serif`; `/system/fonts/MiSansVF_Overlay.ttf` es un symlink a
+`/data/system/fonts/theme_webview/Roboto-Regular.ttf` → `/data/system/theme/fonts/Roboto-Regular.ttf`
+(instalado 24 oct). Ni `android:fontFamily=sans-serif` ni `FontFamily.SansSerif` de Compose
+alcanzan porque el alias del sistema ya está secuestrado. Solución: empaquetar
+`RobotoStatic-Regular.ttf` (299 KB) en `res/font/roboto_regular.ttf` y construir
+`Typography` completo sobre esa familia. Verificado por screenshot antes/después.
+
+**L13 — Pulido.** Slider del reproductor con colores explícitos (thumb/track primary,
+track inactivo gris) porque el default se veía verde. Release final: 1.6 MB firmado v2/v3,
+`lastUpdateTime=2026-10-25 16:59:49`, datos y fuente correctos.
+
+**L14 — Límite restante.** El audio no se puede *escuchar* desde acá: se verificó que
+`MediaPlayer` carga y reporta duración, pero la salida por parlante no es observable vía
+ADB. La búsqueda y los filtros están cubiertos por tests JVM, no por interacción en pantalla.

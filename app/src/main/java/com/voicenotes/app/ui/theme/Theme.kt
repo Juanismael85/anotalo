@@ -1,10 +1,15 @@
 package com.voicenotes.app.ui.theme
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import com.voicenotes.app.R
 
 private val DarkColors = darkColorScheme(
   primary = Color(0xFFB9A3FF),
@@ -34,10 +39,38 @@ private val LightColors = lightColorScheme(
   surface = Color(0xFFFDFBFF),
 )
 
+/** Bundled static font: some MIUI font themes replace `sans-serif` with a serif face. */
+private val AppFontFamily = FontFamily(Font(R.font.roboto_regular, FontWeight.Normal))
+
+private fun appTypography(): Typography {
+  val base = Typography()
+  val sans = AppFontFamily
+  return Typography(
+    displayLarge = base.displayLarge.copy(fontFamily = sans),
+    displayMedium = base.displayMedium.copy(fontFamily = sans),
+    displaySmall = base.displaySmall.copy(fontFamily = sans),
+    headlineLarge = base.headlineLarge.copy(fontFamily = sans),
+    headlineMedium = base.headlineMedium.copy(fontFamily = sans),
+    headlineSmall = base.headlineSmall.copy(fontFamily = sans),
+    titleLarge = base.titleLarge.copy(fontFamily = sans),
+    titleMedium = base.titleMedium.copy(fontFamily = sans),
+    titleSmall = base.titleSmall.copy(fontFamily = sans),
+    bodyLarge = base.bodyLarge.copy(fontFamily = sans),
+    bodyMedium = base.bodyMedium.copy(fontFamily = sans),
+    bodySmall = base.bodySmall.copy(fontFamily = sans),
+    labelLarge = base.labelLarge.copy(fontFamily = sans),
+    labelMedium = base.labelMedium.copy(fontFamily = sans),
+    labelSmall = base.labelSmall.copy(fontFamily = sans),
+  )
+}
+
+private val AppTypography = appTypography()
+
 @Composable
 fun VoiceNotesTheme(darkTheme: Boolean = true, content: @Composable () -> Unit) {
   MaterialTheme(
     colorScheme = if (darkTheme) DarkColors else LightColors,
+    typography = AppTypography,
     content = content,
   )
 }
