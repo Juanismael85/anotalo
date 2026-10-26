@@ -82,9 +82,9 @@ private fun AppRoot(viewModel: NotesViewModel) {
   val context = LocalContext.current
 
   val permissionLauncher = rememberLauncherForActivityResult(
-    ActivityResultContracts.RequestPermission(),
-  ) { granted ->
-    if (granted) {
+    ActivityResultContracts.RequestMultiplePermissions(),
+  ) { grants ->
+    if (grants[Manifest.permission.RECORD_AUDIO] == true) {
       route = Route.Record
     } else {
       permissionDenied = true
@@ -100,25 +100,40 @@ private fun AppRoot(viewModel: NotesViewModel) {
       viewModel = viewModel,
       onOpenNote = { route = Route.Detail(it) },
       onRecord = {
+        if (viewModel.recording.value) {
+          route = Route.Record
+          return@HomeScreen
+        }
         val granted = ContextCompat.checkSelfPermission(
           context,
           Manifest.permission.RECORD_AUDIO,
         ) == PackageManager.PERMISSION_GRANTED
-        if (granted) route = Route.Record else permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        if (granted) {
+          route = Route.Record
+        } else {
+          permissionLauncher.launch(
+            arrayOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.POST_NOTIFICATIONS),
+          )
+        }
       },
       onNewTextNote = {
         val created = viewModel.createTextNote(title = "", body = "")
         route = Route.Detail(created.id)
       },
       onOpenLibrary = { route = Route.Library },
+      onOpenRecorder = { route = Route.Record },
     )
 
     Route.Record -> RecorderScreen(
-      onFinished = { path, duration ->
-        viewModel.createAudioNote(path, duration)
+      onStop = {
+        viewModel.stopRecording()
         route = Route.Home
       },
-      onCancel = { route = Route.Home },
+      onCancel = {
+        viewModel.cancelRecording()
+        route = Route.Home
+      },
+      onCompleted = { route = Route.Home },
     )
 
     Route.Library -> LibraryScreen(

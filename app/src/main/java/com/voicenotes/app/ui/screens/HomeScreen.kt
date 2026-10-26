@@ -28,6 +28,8 @@ import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
@@ -39,19 +41,29 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDrawerState
+import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -67,6 +79,9 @@ import com.voicenotes.app.ui.components.appFilterChipColors
 import com.voicenotes.app.ui.components.formatDate
 import com.voicenotes.app.ui.components.formatDuration
 import com.voicenotes.app.ui.theme.ThemeMode
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -76,6 +91,7 @@ fun HomeScreen(
   onRecord: () -> Unit,
   onNewTextNote: () -> Unit,
   onOpenLibrary: () -> Unit,
+  onOpenRecorder: () -> Unit,
 ) {
   val notes by viewModel.notes.collectAsStateWithLifecycle()
   val folders by viewModel.folders.collectAsStateWithLifecycle()
@@ -84,13 +100,68 @@ fun HomeScreen(
   val folderFilter by viewModel.folderFilter.collectAsStateWithLifecycle()
   val tagFilter by viewModel.tagFilter.collectAsStateWithLifecycle()
   val total by viewModel.totalNotes.collectAsStateWithLifecycle()
+  val recording by viewModel.recording.collectAsStateWithLifecycle()
   val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
   var themeMenuOpen by remember { mutableStateOf(false) }
+  val drawerState = rememberDrawerState(DrawerValue.Closed)
+  val scope = rememberCoroutineScope()
+  val context = LocalContext.current
+  val backupStatus by viewModel.backupStatus.collectAsStateWithLifecycle()
+  val backupError by viewModel.backupError.collectAsStateWithLifecycle()
+  var backupMessage by remember { mutableStateOf<String?>(null) }
+  var pendingRestore by remember { mutableStateOf<android.net.Uri?>(null) }
 
+  val exportLauncher = rememberLauncherForActivityResult(
+    ActivityResultContracts.CreateDocument("application/zip"),
+  ) { uri -> if (uri != null) viewModel.exportBackup(uri) }
+  val restoreLauncher = rememberLauncherForActivityResult(
+    ActivityResultContracts.OpenDocument(),
+  ) { uri -> if (uri != null) pendingRestore = uri }
+
+  BackHandler(enabled = drawerState.isOpen) {
+    scope.launch { drawerState.close() }
+  }
+
+  LaunchedEffect(backupStatus) {
+    backupStatus?.let {
+      backupMessage = it
+      viewModel.clearBackupFeedback()
+    }
+  }
+  LaunchedEffect(backupError) {
+    backupError?.let {
+      backupMessage = it
+      viewModel.clearBackupFeedback()
+    }
+  }
+
+  ModalNavigationDrawer(
+    drawerState = drawerState,
+    drawerContent = {
+      ModalDrawerSheet {
+        SettingsDrawerContent(
+          viewModel = viewModel,
+          onExportBackup = {
+            scope.launch { drawerState.close() }
+            exportLauncher.launch("voicenotes-${System.currentTimeMillis()}.zip")
+          },
+          onRestoreBackup = {
+            scope.launch { drawerState.close() }
+            restoreLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*"))
+          },
+        )
+      }
+    },
+  ) {
   Scaffold(
     containerColor = Color.Transparent,
     topBar = {
       LargeTopAppBar(
+        navigationIcon = {
+          IconButton(onClick = { scope.launch { drawerState.open() } }) {
+            Icon(Icons.Filled.Settings, contentDescription = "Ajustes")
+          }
+        },
         title = {
           Column {
             Text("Notas", style = MaterialTheme.typography.headlineMedium)
@@ -147,6 +218,27 @@ fun HomeScreen(
     Box(Modifier.fillMaxSize()) {
       ScreenGradient()
       Column(Modifier.fillMaxSize().padding(padding)) {
+        if (recording) {
+          Surface(
+            onClick = onOpenRecorder,
+            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
+            shape = RoundedCornerShape(18.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+          ) {
+            Row(
+              modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+              verticalAlignment = Alignment.CenterVertically,
+            ) {
+              Icon(Icons.Filled.Mic, contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary)
+              Spacer(Modifier.width(10.dp))
+              Text(
+                "Grabando en segundo plano · tocar para volver",
+                style = MaterialTheme.typography.bodySmall,
+              )
+            }
+          }
+        }
         SearchField(query = query, onQueryChange = viewModel::setQuery)
         FilterRow(
           folders = folders,
@@ -183,6 +275,37 @@ fun HomeScreen(
         }
       }
     }
+  }
+  }
+
+  pendingRestore?.let { uri ->
+    AlertDialog(
+      onDismissRequest = { pendingRestore = null },
+      title = { Text("¿Restaurar el respaldo?") },
+      text = {
+        Text(
+          "Se reemplazan todas las notas actuales por las del archivo. " +
+            "Antes se guarda una copia del estado actual en notes.json.bak.",
+        )
+      },
+      confirmButton = {
+        TextButton(onClick = {
+          viewModel.restoreBackup(uri)
+          pendingRestore = null
+        }) { Text("Restaurar") }
+      },
+      dismissButton = {
+        TextButton(onClick = { pendingRestore = null }) { Text("Cancelar") }
+      },
+    )
+  }
+
+  backupMessage?.let { text ->
+    AlertDialog(
+      onDismissRequest = { backupMessage = null },
+      confirmButton = { TextButton(onClick = { backupMessage = null }) { Text("Entendido") } },
+      text = { Text(text) },
+    )
   }
 }
 

@@ -16,8 +16,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Label
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -48,6 +51,8 @@ import com.voicenotes.app.ui.NotesViewModel
 import com.voicenotes.app.ui.components.EmptyState
 import com.voicenotes.app.ui.components.ScreenGradient
 
+/** S17 — what a rename/delete dialog is acting on. */
+private data class NameTarget(val isFolder: Boolean, val id: String, val name: String)
 /** Folders and tags management (S7, S8). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -56,6 +61,8 @@ fun LibraryScreen(viewModel: NotesViewModel, onBack: () -> Unit) {
   val tags by viewModel.tags.collectAsStateWithLifecycle()
   var tab by remember { mutableIntStateOf(0) }
   var newName by remember { mutableStateOf("") }
+  var renaming by remember { mutableStateOf<NameTarget?>(null) }
+  var deleting by remember { mutableStateOf<NameTarget?>(null) }
 
   Scaffold(
     containerColor = Color.Transparent,
@@ -144,7 +151,21 @@ fun LibraryScreen(viewModel: NotesViewModel, onBack: () -> Unit) {
                   Icon(Icons.Filled.Folder, contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary)
                   Spacer(Modifier.width(12.dp))
-                  Text(folder.name, style = MaterialTheme.typography.titleMedium)
+                  Text(
+                    folder.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f),
+                  )
+                  IconButton(
+                    onClick = { renaming = NameTarget(true, folder.id, folder.name) },
+                  ) {
+                    Icon(Icons.Filled.Edit, contentDescription = "Renombrar carpeta")
+                  }
+                  IconButton(
+                    onClick = { deleting = NameTarget(true, folder.id, folder.name) },
+                  ) {
+                    Icon(Icons.Filled.Delete, contentDescription = "Eliminar carpeta")
+                  }
                 }
               }
             }
@@ -177,7 +198,21 @@ fun LibraryScreen(viewModel: NotesViewModel, onBack: () -> Unit) {
                   Icon(Icons.Filled.Label, contentDescription = null,
                     tint = MaterialTheme.colorScheme.secondary)
                   Spacer(Modifier.width(12.dp))
-                  Text("#${tag.name}", style = MaterialTheme.typography.titleMedium)
+                  Text(
+                    "#${tag.name}",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f),
+                  )
+                  IconButton(
+                    onClick = { renaming = NameTarget(false, tag.id, tag.name) },
+                  ) {
+                    Icon(Icons.Filled.Edit, contentDescription = "Renombrar etiqueta")
+                  }
+                  IconButton(
+                    onClick = { deleting = NameTarget(false, tag.id, tag.name) },
+                  ) {
+                    Icon(Icons.Filled.Delete, contentDescription = "Eliminar etiqueta")
+                  }
                 }
               }
             }
@@ -186,5 +221,54 @@ fun LibraryScreen(viewModel: NotesViewModel, onBack: () -> Unit) {
       }
       Spacer(Modifier.height(24.dp))
     }
+  }
+
+  renaming?.let { target ->
+    var draft by remember(target.id) { mutableStateOf(target.name) }
+    AlertDialog(
+      onDismissRequest = { renaming = null },
+      title = { Text(if (target.isFolder) "Renombrar carpeta" else "Renombrar etiqueta") },
+      text = {
+        TextField(
+          value = draft,
+          onValueChange = { draft = it },
+          singleLine = true,
+          placeholder = { Text("Nombre") },
+        )
+      },
+      confirmButton = {
+        TextButton(onClick = {
+          if (draft.isNotBlank()) {
+            if (target.isFolder) viewModel.renameFolder(target.id, draft)
+            else viewModel.renameTag(target.id, draft)
+          }
+          renaming = null
+        }) { Text("Guardar") }
+      },
+      dismissButton = { TextButton(onClick = { renaming = null }) { Text("Cancelar") } },
+    )
+  }
+
+  deleting?.let { target ->
+    AlertDialog(
+      onDismissRequest = { deleting = null },
+      title = { Text(if (target.isFolder) "¿Eliminar la carpeta?" else "¿Eliminar la etiqueta?") },
+      text = {
+        Text(
+          if (target.isFolder) {
+            "Las notas de \"${target.name}\" no se borran: quedan sin carpeta."
+          } else {
+            "La etiqueta \"${target.name}\" se quita de todas las notas."
+          },
+        )
+      },
+      confirmButton = {
+        TextButton(onClick = {
+          if (target.isFolder) viewModel.deleteFolder(target.id) else viewModel.deleteTag(target.id)
+          deleting = null
+        }) { Text("Eliminar") }
+      },
+      dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancelar") } },
+    )
   }
 }

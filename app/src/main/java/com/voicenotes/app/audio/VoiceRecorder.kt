@@ -75,8 +75,7 @@ class VoiceRecorder(private val context: Context) {
       runCatching { active.release() }
     }
     if (discard) runCatching { target?.delete() }
-    if (!discard) target = null
-    if (discard) target = null
+    target = null
     startedAtMillis = 0L
   }
 }

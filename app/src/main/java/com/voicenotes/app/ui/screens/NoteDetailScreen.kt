@@ -20,6 +20,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Audiotrack
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.PictureAsPdf
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
@@ -29,6 +34,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -53,6 +59,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -60,6 +67,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.voicenotes.app.export.NoteExporter
+import com.voicenotes.app.export.NoteSharing
 import com.voicenotes.app.data.Note
 import com.voicenotes.app.speech.DictationController
 import com.voicenotes.app.speech.rememberDictation
@@ -68,7 +77,10 @@ import com.voicenotes.app.ui.components.ScreenGradient
 import com.voicenotes.app.ui.components.formatDate
 import com.voicenotes.app.ui.components.appFilterChipColors
 import com.voicenotes.app.ui.components.formatDuration
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -91,7 +103,34 @@ fun NoteDetailScreen(
   var body by remember(noteId) { mutableStateOf(note.body) }
   var showDelete by remember { mutableStateOf(false) }
   var showFolderMenu by remember { mutableStateOf(false) }
+  var showShareMenu by remember { mutableStateOf(false) }
   var message by remember { mutableStateOf<String?>(null) }
+
+  val aiRunning by viewModel.aiRunning.collectAsStateWithLifecycle()
+  val aiError by viewModel.aiError.collectAsStateWithLifecycle()
+  val aiStatus by viewModel.aiStatus.collectAsStateWithLifecycle()
+  val context = LocalContext.current
+  val scope = rememberCoroutineScope()
+  val folderName = folders.firstOrNull { it.id == note.folderId }?.name
+  val tagNames = note.tagIds.mapNotNull { id -> tags.firstOrNull { it.id == id }?.name }
+
+  // The AI (or another screen) can change the note while it is open.
+  LaunchedEffect(note.updatedAt) {
+    if (note.title != title) title = note.title
+    if (note.body != body) body = note.body
+  }
+  LaunchedEffect(aiError) {
+    aiError?.let {
+      message = it
+      viewModel.clearAiFeedback()
+    }
+  }
+  LaunchedEffect(aiStatus) {
+    aiStatus?.let {
+      message = it
+      viewModel.clearAiFeedback()
+    }
+  }
 
   val dictation = rememberDictation(
     onText = { spoken -> viewModel.appendTranscript(noteId, spoken) },
@@ -117,6 +156,65 @@ fun NoteDetailScreen(
           }
         },
         actions = {
+          IconButton(
+            onClick = { viewModel.runAi(noteId) },
+            enabled = !aiRunning,
+          ) {
+            if (aiRunning) {
+              CircularProgressIndicator(
+                modifier = Modifier.size(20.dp),
+                strokeWidth = 2.dp,
+              )
+            } else {
+              Icon(Icons.Filled.AutoAwesome, contentDescription = "Procesar con IA")
+            }
+          }
+          Box {
+            IconButton(onClick = { showShareMenu = true }) {
+              Icon(Icons.Filled.Share, contentDescription = "Compartir")
+            }
+            DropdownMenu(
+              expanded = showShareMenu,
+              onDismissRequest = { showShareMenu = false },
+            ) {
+              ShareItem("Texto", Icons.Filled.Description) {
+                showShareMenu = false
+                NoteSharing.shareText(
+                  context,
+                  NoteExporter.fileName(note, "txt"),
+                  NoteExporter.plainText(note, folderName, tagNames),
+                )
+              }
+              ShareItem("Markdown", Icons.Filled.Description) {
+                showShareMenu = false
+                NoteSharing.shareText(
+                  context,
+                  NoteExporter.fileName(note, "md"),
+                  NoteExporter.markdown(note, folderName, tagNames),
+                )
+              }
+              ShareItem("PDF", Icons.Filled.PictureAsPdf) {
+                showShareMenu = false
+                scope.launch {
+                  val file = withContext(Dispatchers.IO) {
+                    NoteSharing.pdfFor(context, note, folderName, tagNames)
+                  }
+                  NoteSharing.shareFile(context, file, "application/pdf", "Nota PDF")
+                }
+              }
+              if (note.audioPath != null) {
+                ShareItem("Audio", Icons.Filled.Audiotrack) {
+                  showShareMenu = false
+                  NoteSharing.shareFile(
+                    context,
+                    java.io.File(note.audioPath),
+                    "audio/mp4",
+                    "Nota de voz",
+                  )
+                }
+              }
+            }
+          }
           IconButton(onClick = {
             viewModel.updateNote(noteId, title, body)
             onBack()
@@ -187,6 +285,11 @@ fun NoteDetailScreen(
           unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
         ),
       )
+
+      if (note.summary.isNotBlank()) {
+        Spacer(Modifier.height(16.dp))
+        SummaryCard(summary = note.summary)
+      }
 
       Spacer(Modifier.height(16.dp))
       TranscriptCard(
@@ -273,6 +376,45 @@ fun NoteDetailScreen(
       text = { Text(text) },
     )
   }
+}
+
+@Composable
+private fun SummaryCard(summary: String) {
+  Card(
+    shape = RoundedCornerShape(20.dp),
+    colors = CardDefaults.cardColors(
+      containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+      contentColor = MaterialTheme.colorScheme.onSurface,
+    ),
+  ) {
+    Column(Modifier.fillMaxWidth().padding(16.dp)) {
+      Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+          Icons.Filled.AutoAwesome,
+          contentDescription = null,
+          tint = MaterialTheme.colorScheme.primary,
+          modifier = Modifier.size(18.dp),
+        )
+        Spacer(Modifier.width(8.dp))
+        Text("Resumen", style = MaterialTheme.typography.labelLarge)
+      }
+      Spacer(Modifier.height(8.dp))
+      Text(summary, style = MaterialTheme.typography.bodyMedium)
+    }
+  }
+}
+
+@Composable
+private fun ShareItem(
+  label: String,
+  icon: androidx.compose.ui.graphics.vector.ImageVector,
+  onClick: () -> Unit,
+) {
+  DropdownMenuItem(
+    text = { Text(label) },
+    leadingIcon = { Icon(icon, contentDescription = null) },
+    onClick = onClick,
+  )
 }
 
 @Composable

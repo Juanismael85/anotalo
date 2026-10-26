@@ -24,10 +24,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -37,35 +35,39 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.voicenotes.app.audio.VoiceRecorder
+import com.voicenotes.app.audio.RecordingService
+import com.voicenotes.app.audio.RecordingSession
 import com.voicenotes.app.ui.components.PulseCircle
 import com.voicenotes.app.ui.components.formatDuration
-import kotlinx.coroutines.delay
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
-/** Full-screen recorder with live timer (S2). */
+/** Full-screen recorder with live timer (S2). Recording itself runs in a service (S14). */
 @Composable
 fun RecorderScreen(
-  onFinished: (path: String, durationMs: Long) -> Unit,
+  onStop: () -> Unit,
   onCancel: () -> Unit,
+  onCompleted: () -> Unit,
 ) {
   val context = LocalContext.current
-  val recorder = remember { VoiceRecorder(context.applicationContext) }
-  var elapsed by remember { mutableLongStateOf(0L) }
-  var errorMessage by remember { mutableStateOf<String?>(null) }
-  var finished by remember { mutableStateOf(false) }
+  val active by RecordingSession.active.collectAsStateWithLifecycle()
+  val elapsed by RecordingSession.elapsed.collectAsStateWithLifecycle()
+  val errorMessage by RecordingSession.error.collectAsStateWithLifecycle()
 
   LaunchedEffect(Unit) {
-    runCatching { recorder.start() }
-      .onFailure { errorMessage = "No pude acceder al micrófono." }
-    while (true) {
-      elapsed = recorder.elapsedMillis()
-      delay(120)
+    if (!RecordingSession.active.value) {
+      RecordingService.start(context)
     }
   }
 
-  DisposableEffect(Unit) {
-    onDispose {
-      if (!finished) recorder.cancel()
+  // Stopped from the notification while this screen sat in the background. Only navigate once
+  // the session was really running, otherwise the first "not active yet" value would bounce back.
+  var wasActive by remember { mutableStateOf(false) }
+  LaunchedEffect(active) {
+    if (active) {
+      wasActive = true
+    } else if (wasActive) {
+      wasActive = false
+      onCompleted()
     }
   }
 
@@ -83,11 +85,7 @@ fun RecorderScreen(
       ),
   ) {
     IconButton(
-      onClick = {
-        finished = true
-        recorder.cancel()
-        onCancel()
-      },
+      onClick = onCancel,
       modifier = Modifier.padding(12.dp).align(Alignment.TopStart),
     ) {
       Icon(Icons.Filled.Close, contentDescription = "Cancelar grabación")
@@ -129,7 +127,8 @@ fun RecorderScreen(
 
       Spacer(Modifier.height(8.dp))
       Text(
-        text = errorMessage ?: "Hablá con naturalidad. Al detener se guarda la nota.",
+        text = errorMessage
+          ?: "Hablá con naturalidad. Podés salir de la app: la grabación sigue.",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         textAlign = TextAlign.Center,
@@ -141,17 +140,8 @@ fun RecorderScreen(
         horizontalArrangement = Arrangement.Center,
       ) {
         Button(
-          onClick = {
-            val result = recorder.stop()
-            finished = true
-            if (result != null) {
-              onFinished(result.first.absolutePath, result.second)
-            } else {
-              errorMessage = "La grabación quedó vacía."
-              onCancel()
-            }
-          },
-          enabled = errorMessage == null,
+          onClick = onStop,
+          enabled = errorMessage == null && active,
           shape = RoundedCornerShape(18.dp),
           colors = ButtonDefaults.buttonColors(
             containerColor = MaterialTheme.colorScheme.primary,
