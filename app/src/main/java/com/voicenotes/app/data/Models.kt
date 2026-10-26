@@ -8,6 +8,7 @@ data class Note(
   val title: String = "",
   val body: String = "",
   val transcript: String = "",
+  val summary: String = "",
   val audioPath: String? = null,
   val durationMs: Long = 0L,
   val folderId: String? = null,

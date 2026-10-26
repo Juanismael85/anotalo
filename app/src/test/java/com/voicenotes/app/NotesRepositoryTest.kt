@@ -254,4 +254,140 @@ class NotesRepositoryTest {
     assertEquals(ThemeMode.AMOLED, ThemeMode.next(ThemeMode.DARK))
     assertEquals(ThemeMode.LIGHT, ThemeMode.next(ThemeMode.AMOLED))
   }
+
+  // S17 — library administration
+  @Test
+  fun `renaming a folder keeps its notes attached`() {
+    val work = repo.createFolder("Trabajo")
+    repo.createAudioNote(audioPath = "/tmp/a.m4a", durationMs = 1000, folderId = work.id)
+
+    repo.renameFolder(work.id, "Oficina")
+
+    assertEquals("Oficina", repo.state.value.folders.first().name)
+    assertEquals(1, repo.visibleNotes(work.id, null, "").size)
+  }
+
+  @Test
+  fun `deleting a folder unfiles its notes instead of deleting them`() {
+    val work = repo.createFolder("Trabajo")
+    repo.createAudioNote(audioPath = "/tmp/a.m4a", durationMs = 1000, folderId = work.id)
+
+    repo.deleteFolder(work.id)
+
+    assertTrue(repo.state.value.folders.isEmpty())
+    assertEquals(1, repo.state.value.notes.size)
+    assertNull(repo.state.value.notes.first().folderId)
+  }
+
+  @Test
+  fun `deleting a tag detaches it from every note`() {
+    val urgent = repo.createTag("urgente")
+    val note = repo.createTextNote(title = "x", body = "")
+    repo.toggleTag(note.id, urgent.id)
+
+    repo.deleteTag(urgent.id)
+
+    assertTrue(repo.state.value.tags.isEmpty())
+    assertTrue(repo.state.value.notes.first().tagIds.isEmpty())
+  }
+
+  @Test
+  fun `renaming a tag keeps the note assignment`() {
+    val tag = repo.createTag("urgente")
+    val note = repo.createTextNote(title = "x", body = "")
+    repo.toggleTag(note.id, tag.id)
+
+    repo.renameTag(tag.id, "prioridad")
+
+    assertEquals("prioridad", repo.state.value.tags.first().name)
+    assertTrue(repo.state.value.notes.first().tagIds.contains(tag.id))
+  }
+
+  // S19 — summary is part of the note and of the search
+  @Test
+  fun `summary survives a reload and is searchable`() {
+    val note = repo.createAudioNote(audioPath = "/tmp/a.m4a", durationMs = 1000)
+    repo.applyAiResult(
+      noteId = note.id,
+      title = "Llamada con Ana",
+      transcript = "Coordinar la entrega del lunes.",
+      summary = "Se acordó entregar el lunes.",
+      tagNames = listOf("trabajo"),
+    )
+
+    val reopened = NotesRepository(storage)
+    reopened.load()
+
+    val saved = reopened.state.value.notes.first()
+    assertEquals("Se acordó entregar el lunes.", saved.summary)
+    assertEquals(1, reopened.visibleNotes(null, null, "lunes").size)
+    assertEquals(1, reopened.visibleNotes(null, null, "entrega").size)
+  }
+
+  @Test
+  fun `ai result reuses an existing tag instead of duplicating it`() {
+    repo.createTag("trabajo")
+    val note = repo.createAudioNote(audioPath = "/tmp/a.m4a", durationMs = 1000)
+
+    repo.applyAiResult(
+      noteId = note.id,
+      title = "Reunión",
+      transcript = "Texto",
+      summary = "Resumen",
+      tagNames = listOf("Trabajo", "ideas"),
+    )
+
+    assertEquals(2, repo.state.value.tags.size)
+    assertEquals(2, repo.state.value.notes.first().tagIds.size)
+  }
+
+  @Test
+  fun `ai result leaves an existing title untouched when the model returns nothing`() {
+    val note = repo.createTextNote(title = "Mi título", body = "cuerpo")
+
+    repo.applyAiResult(
+      noteId = note.id,
+      title = "",
+      transcript = "Texto limpio",
+      summary = "Resumen",
+      tagNames = emptyList(),
+    )
+
+    assertEquals("Mi título", repo.state.value.notes.first().title)
+  }
+
+  // S16 — backup and restore of the whole library
+  @Test
+  fun `snapshot json round trips into a fresh repository`() {
+    repo.createTextNote(title = "Comprar pan", body = "Integral")
+    repo.createFolder("Trabajo")
+
+    val raw = repo.snapshotJson()
+    val restored = NotesRepository(FakeStorage())
+    restored.load()
+
+    assertTrue(restored.replaceWithJson(raw))
+    assertEquals(1, restored.state.value.notes.size)
+    assertEquals("Comprar pan", restored.state.value.notes.first().title)
+    assertEquals(1, restored.state.value.folders.size)
+  }
+
+  @Test
+  fun `replaceWithJson rejects garbage and keeps the current library`() {
+    repo.createTextNote(title = "Queda", body = "")
+
+    assertTrue(!repo.replaceWithJson("{esto no es un respaldo"))
+    assertEquals(1, repo.state.value.notes.size)
+    assertEquals("Queda", repo.state.value.notes.first().title)
+  }
+
+  @Test
+  fun `rebase audio paths points notes at the current audio folder`() {
+    val note = repo.createAudioNote(audioPath = "/viejo/files/audio/note-1.m4a", durationMs = 900L)
+
+    repo.rebaseAudioPaths("/nuevo/files/audio")
+
+    assertEquals("/nuevo/files/audio/note-1.m4a", repo.state.value.notes.first().audioPath)
+    assertEquals(note.id, repo.state.value.notes.first().id)
+  }
 }

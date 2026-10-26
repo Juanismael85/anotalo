@@ -54,6 +54,34 @@ class NotesRepository(
     runCatching { storage.write(json.encodeToString(next)) }
   }
 
+  // ---- backup and restore (S16) -----------------------------------------
+
+  fun snapshotJson(): String = json.encodeToString(_state.value)
+
+  /** Replaces the whole library with a validated backup; garbage leaves the current state intact. */
+  fun replaceWithJson(raw: String): Boolean {
+    val decoded = runCatching { json.decodeFromString<Library>(raw) }.getOrNull() ?: return false
+    commit(decoded)
+    return true
+  }
+
+  /** Audio paths are absolute; a restore on another install must point at the current folder. */
+  fun rebaseAudioPaths(audioDir: String) {
+    val dir = audioDir.trimEnd('/')
+    commit(
+      _state.value.copy(
+        notes = _state.value.notes.map { note ->
+          val path = note.audioPath
+          if (path == null) {
+            note
+          } else {
+            note.copy(audioPath = "$dir/" + File(path).name)
+          }
+        },
+      ),
+    )
+  }
+
   private fun newId(prefix: String): String {
     sequence += 1
     return "$prefix-${clock()}-$sequence"
@@ -159,6 +187,104 @@ class NotesRepository(
     return tag
   }
 
+  fun renameFolder(id: String, name: String) {
+    val trimmed = name.trim()
+    if (trimmed.isEmpty()) return
+    commit(
+      _state.value.copy(
+        folders = _state.value.folders.map {
+          if (it.id == id) it.copy(name = trimmed) else it
+        },
+      ),
+    )
+  }
+
+  /** Deleting a folder keeps its notes, only unfiling them. */
+  fun deleteFolder(id: String) {
+    commit(
+      _state.value.copy(
+        folders = _state.value.folders.filterNot { it.id == id },
+        notes = _state.value.notes.map {
+          if (it.folderId == id) it.copy(folderId = null, updatedAt = clock()) else it
+        },
+      ),
+    )
+  }
+
+  fun renameTag(id: String, name: String) {
+    val trimmed = name.trim()
+    if (trimmed.isEmpty()) return
+    commit(
+      _state.value.copy(
+        tags = _state.value.tags.map { if (it.id == id) it.copy(name = trimmed) else it },
+      ),
+    )
+  }
+
+  /** Deleting a tag detaches it from every note. */
+  fun deleteTag(id: String) {
+    commit(
+      _state.value.copy(
+        tags = _state.value.tags.filterNot { it.id == id },
+        notes = _state.value.notes.map {
+          if (it.tagIds.contains(id)) {
+            it.copy(tagIds = it.tagIds - id, updatedAt = clock())
+          } else {
+            it
+          }
+        },
+      ),
+    )
+  }
+
+  /**
+   * Applies a model result (S19): a blank title or transcript keeps what is already there,
+   * tags are matched case-insensitively and created when missing.
+   */
+  fun applyAiResult(
+    noteId: String,
+    title: String,
+    transcript: String,
+    summary: String,
+    tagNames: List<String>,
+  ) {
+    var tags = _state.value.tags
+    val resolvedIds = tagNames.mapNotNull { raw ->
+      val name = raw.trim()
+      if (name.isEmpty()) {
+        null
+      } else {
+        val existing = tags.firstOrNull { it.name.equals(name, ignoreCase = true) }
+        if (existing != null) {
+          existing.id
+        } else {
+          val created = Tag(id = newId("tag"), name = name, createdAt = clock())
+          tags = tags + created
+          created.id
+        }
+      }
+    }
+
+    commit(
+      _state.value.copy(
+        tags = tags,
+        notes = _state.value.notes.map { note ->
+          if (note.id != noteId) {
+            note
+          } else {
+            note.copy(
+              title = if (title.isBlank()) note.title else title.trim(),
+              transcript = if (transcript.isBlank()) note.transcript else transcript.trim(),
+              summary = if (summary.isBlank()) note.summary else summary.trim(),
+              tagIds = (note.tagIds + resolvedIds).distinct(),
+              updatedAt = clock(),
+            )
+          }
+        },
+      ),
+    )
+  }
+
   // ---- queries -----------------------------------------------------------
 
   /** Applies folder filter (S7), tag filter (S8) and text search (S9). */
@@ -175,7 +301,8 @@ class NotesRepository(
   private fun matches(note: Note, needle: String): Boolean =
     note.title.lowercase().contains(needle) ||
       note.body.lowercase().contains(needle) ||
-      note.transcript.lowercase().contains(needle)
+      note.transcript.lowercase().contains(needle) ||
+      note.summary.lowercase().contains(needle)
 
   fun displayTitle(note: Note): String = note.title.trim().ifBlank { "Sin título" }
 }
