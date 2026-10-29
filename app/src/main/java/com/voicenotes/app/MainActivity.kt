@@ -33,6 +33,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.voicenotes.app.reminder.ReminderNotifications
 import com.voicenotes.app.ui.NotesViewModel
+import com.voicenotes.app.ui.screens.ActivitiesScreen
 import com.voicenotes.app.ui.screens.AppBottomBar
 import com.voicenotes.app.ui.screens.AppTab
 import com.voicenotes.app.ui.screens.CalendarScreen
@@ -97,6 +98,7 @@ private sealed interface Route {
   data object Home : Route
   data object Radar : Route
   data object Calendar : Route
+  data object Activities : Route
   data object Record : Route
   data object Library : Route
   data class Detail(val noteId: String) : Route
@@ -127,6 +129,7 @@ private fun AppRoot(
       AppTab.NOTES -> Route.Home
       AppTab.RADAR -> Route.Radar
       AppTab.CALENDAR -> Route.Calendar
+      AppTab.ACTIVITIES -> Route.Activities
     }
   }
 
@@ -192,6 +195,17 @@ private fun AppRoot(
       bottomBar = {
         AppBottomBar(
           selected = AppTab.RADAR,
+          onSelect = selectTab,
+          reminderCount = reminderCount,
+        )
+      },
+    )
+
+    Route.Activities -> ActivitiesScreen(
+      viewModel = viewModel,
+      bottomBar = {
+        AppBottomBar(
+          selected = AppTab.ACTIVITIES,
           onSelect = selectTab,
           reminderCount = reminderCount,
         )

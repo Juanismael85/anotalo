@@ -6,6 +6,7 @@ import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.voicenotes.app.ai.AiClient
+import com.voicenotes.app.ai.ScheduleSource
 import com.voicenotes.app.ai.AiException
 import com.voicenotes.app.ai.GeminiClient
 import com.voicenotes.app.audio.RecordingService
@@ -352,6 +353,71 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
 
   private val _reminderStatus = MutableStateFlow<String?>(null)
   val reminderStatus: StateFlow<String?> = _reminderStatus.asStateFlow()
+
+  // ---- activities section ---------------------------------------------------
+
+  val activities: StateFlow<List<com.voicenotes.app.data.Activity>> = repository.state
+    .map { state -> state.activities.sortedWith(compareBy({ it.dayOfWeek }, { it.startMinutes })) }
+    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+  val workConfig: StateFlow<com.voicenotes.app.data.WorkConfig?> = repository.state
+    .map { it.workConfig }
+    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+  private val _scheduleStatus = MutableStateFlow<String?>(null)
+  val scheduleStatus: StateFlow<String?> = _scheduleStatus.asStateFlow()
+
+  private val _generating = MutableStateFlow(false)
+  val generating: StateFlow<Boolean> = _generating.asStateFlow()
+
+  fun saveWorkConfig(config: com.voicenotes.app.data.WorkConfig?) {
+    repository.setWorkConfig(config)
+  }
+
+  fun toggleActivityDone(id: String, done: Boolean) {
+    repository.setActivityDone(id, done)
+  }
+
+  fun deleteActivity(id: String) {
+    repository.deleteActivity(id)
+  }
+
+  fun clearScheduleStatus() {
+    _scheduleStatus.value = null
+  }
+
+  /** S5 — reads the notes with the configured workdays and hours and builds the weekly schedule. */
+  fun generateWeeklySchedule() {
+    val config = repository.state.value.workConfig
+    if (config == null) {
+      _scheduleStatus.value = "Configurá tus días y horas de trabajo primero."
+      return
+    }
+    if (_generating.value) return
+    viewModelScope.launch {
+      _generating.value = true
+      val sources = repository.state.value.notes.map { note ->
+        ScheduleSource(
+          title = note.title.trim().ifBlank { "Nota sin título" },
+          summary = note.summary,
+          transcript = note.transcript.take(400),
+          noteId = note.id,
+        )
+      }
+      val outcome = runCatching {
+        aiClient.generateSchedule(_apiKey.value, _aiModel.value, config, sources)
+      }
+      outcome.fold(
+        onSuccess = { plan ->
+          repository.replaceAiActivities(plan)
+          _scheduleStatus.value =
+            "Cronograma creado con ${plan.size} actividad${if (plan.size == 1) "" else "es"}."
+        },
+        onFailure = { error -> _scheduleStatus.value = error.message ?: "No pude generar el cronograma." },
+      )
+      _generating.value = false
+    }
+  }
 
   fun clearReminderFeedback() {
     _reminderStatus.value = null

@@ -2,6 +2,7 @@ package com.voicenotes.app.ui.screens
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.FactCheck
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material3.Badge
@@ -18,6 +19,7 @@ enum class AppTab(val label: String) {
   NOTES("Notas"),
   RADAR("Radar"),
   CALENDAR("Calendario"),
+  ACTIVITIES("Actividades"),
 }
 
 @Composable
@@ -50,4 +52,5 @@ private fun iconFor(tab: AppTab) = when (tab) {
   AppTab.NOTES -> Icons.Filled.Mic
   AppTab.RADAR -> Icons.Filled.NotificationsActive
   AppTab.CALENDAR -> Icons.Filled.CalendarMonth
+  AppTab.ACTIVITIES -> Icons.Filled.FactCheck
 }
