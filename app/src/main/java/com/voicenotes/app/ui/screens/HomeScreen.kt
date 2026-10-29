@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Mic
@@ -73,6 +74,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.voicenotes.app.data.Folder
 import com.voicenotes.app.data.Note
+import com.voicenotes.app.ui.components.ActivityDraft
+import com.voicenotes.app.ui.components.ActivityEditorDialog
 import com.voicenotes.app.data.Tag
 import com.voicenotes.app.ui.NotesViewModel
 import com.voicenotes.app.ui.components.EmptyState
@@ -113,6 +116,7 @@ fun HomeScreen(
   val backupError by viewModel.backupError.collectAsStateWithLifecycle()
   var backupMessage by remember { mutableStateOf<String?>(null) }
   var doneFilter by remember { mutableStateOf(DoneFilter.ALL) }
+  var scheduling by remember { mutableStateOf<ActivityDraft?>(null) }
   var pendingRestore by remember { mutableStateOf<android.net.Uri?>(null) }
 
   val exportLauncher = rememberLauncherForActivityResult(
@@ -288,6 +292,7 @@ fun HomeScreen(
                 folderName = folders.firstOrNull { it.id == note.folderId }?.name,
                 onClick = { onOpenNote(note.id) },
                 onToggleDone = { done -> viewModel.setNoteDone(note.id, done) },
+                onSchedule = { scheduling = viewModel.suggestActivity(note.id) },
               )
             }
           }
@@ -295,6 +300,18 @@ fun HomeScreen(
       }
     }
   }
+  }
+
+  scheduling?.let { draft ->
+    ActivityEditorDialog(
+      heading = "¿Agendar esta nota?",
+      draft = draft,
+      onDismiss = { scheduling = null },
+      onSave = { saved ->
+        viewModel.saveActivity(saved)
+        scheduling = null
+      },
+    )
   }
 
   pendingRestore?.let { uri ->
@@ -423,6 +440,7 @@ private fun NoteCard(
   folderName: String?,
   onClick: () -> Unit,
   onToggleDone: (Boolean) -> Unit,
+  onSchedule: () -> Unit,
 ) {
   Card(
     onClick = onClick,
@@ -498,6 +516,13 @@ private fun NoteCard(
             overflow = TextOverflow.Ellipsis,
           )
         }
+      }
+      IconButton(onClick = onSchedule) {
+        Icon(
+          imageVector = Icons.Filled.Event,
+          contentDescription = "Agendar esta nota",
+          tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
       }
       IconButton(onClick = { onToggleDone(!note.done) }) {
         Icon(

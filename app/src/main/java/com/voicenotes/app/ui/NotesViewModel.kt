@@ -7,6 +7,10 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.voicenotes.app.ai.AiClient
 import com.voicenotes.app.ai.ScheduleSource
+import java.time.LocalDate
+import com.voicenotes.app.data.ScheduleRules
+import com.voicenotes.app.ai.TaskExtractor
+import com.voicenotes.app.ai.LocalSchedulePlanner
 import com.voicenotes.app.ai.AiException
 import com.voicenotes.app.ai.GeminiClient
 import com.voicenotes.app.audio.RecordingService
@@ -16,12 +20,14 @@ import com.voicenotes.app.data.Folder
 import com.voicenotes.app.data.Note
 import com.voicenotes.app.data.LibraryStore
 import com.voicenotes.app.data.Tag
+import com.voicenotes.app.reminder.DailyAgendaScheduler
 import com.voicenotes.app.reminder.ReminderScheduler
 import com.voicenotes.app.reminder.ReminderTime
 import com.voicenotes.app.reminder.Reminders
 import com.voicenotes.app.ui.theme.ThemeMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -98,6 +104,13 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
     importOrphanRecordings()
     // Alarms are lost on reboot, update or battery cleanup; opening the app re-arms them.
     scheduler.rescheduleAll(repository.state.value.notes)
+    val agendaScheduler = DailyAgendaScheduler(application)
+    agendaScheduler.schedule(repository.state.value.workConfig)
+    viewModelScope.launch {
+      repository.state.map { it.workConfig }.distinctUntilChanged().collect { config ->
+        agendaScheduler.schedule(config)
+      }
+    }
     viewModelScope.launch {
       RecordingSession.result.collect { finished ->
         if (finished != null) {
@@ -388,6 +401,11 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
   private val _scheduleStatus = MutableStateFlow<String?>(null)
   val scheduleStatus: StateFlow<String?> = _scheduleStatus.asStateFlow()
 
+  private val _fallbackOffered = MutableStateFlow(false)
+
+  /** S3 (agenda) — the AI failed, so the screen offers the local plan instead of a dead end. */
+  val fallbackOffered: StateFlow<Boolean> = _fallbackOffered.asStateFlow()
+
   private val _generating = MutableStateFlow(false)
   val generating: StateFlow<Boolean> = _generating.asStateFlow()
 
@@ -405,6 +423,94 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
 
   fun clearScheduleStatus() {
     _scheduleStatus.value = null
+    _fallbackOffered.value = false
+  }
+
+  /** S1 (agenda) — the draft the "Agendar" button shows for one note; nothing is saved yet. */
+  fun suggestActivity(noteId: String): com.voicenotes.app.ui.components.ActivityDraft? {
+    val note = repository.state.value.notes.firstOrNull { it.id == noteId } ?: return null
+    val suggestion = TaskExtractor.suggest(
+      title = displayTitle(note),
+      summary = note.summary,
+      transcript = note.transcript.ifBlank { note.body },
+      config = repository.state.value.workConfig,
+      today = LocalDate.now().dayOfWeek.value,
+    )
+    return com.voicenotes.app.ui.components.ActivityDraft(
+      title = suggestion.title,
+      dayOfWeek = suggestion.dayOfWeek,
+      startMinutes = suggestion.startMinutes,
+      durationMinutes = suggestion.durationMinutes,
+      noteId = note.id,
+    )
+  }
+
+  fun saveActivity(draft: com.voicenotes.app.ui.components.ActivityDraft) {
+    val id = draft.id
+    if (id == null) {
+      repository.createActivity(
+        title = draft.title,
+        dayOfWeek = draft.dayOfWeek,
+        startMinutes = draft.startMinutes,
+        noteId = draft.noteId,
+        durationMinutes = draft.durationMinutes,
+        repeatDays = draft.repeatDays,
+      )
+      _scheduleStatus.value = "Actividad agregada al cronograma."
+    } else {
+      repository.updateActivity(
+        id = id,
+        title = draft.title,
+        dayOfWeek = draft.dayOfWeek,
+        startMinutes = draft.startMinutes,
+        durationMinutes = draft.durationMinutes,
+        repeatDays = draft.repeatDays,
+      )
+      _scheduleStatus.value = "Actividad actualizada."
+    }
+  }
+
+  /** S3 (agenda) — the schedule without the AI, offered only after a failed generation. */
+  fun generateScheduleLocally() {
+    val config = repository.state.value.workConfig
+    if (config == null) {
+      _scheduleStatus.value = "Configurá tus días y horas de trabajo primero."
+      return
+    }
+    val plan = LocalSchedulePlanner.plan(config, scheduleSources())
+    if (plan.isEmpty()) {
+      _fallbackOffered.value = false
+      _scheduleStatus.value = "No encontré tareas para agendar. Cargá una nota con algo para hacer."
+      return
+    }
+    repository.replaceAiActivities(plan)
+    _fallbackOffered.value = false
+    _scheduleStatus.value =
+      "Cronograma simple creado con ${plan.size} actividad${if (plan.size == 1) "" else "es"}, sin IA."
+  }
+
+  /** S5 (agenda) — moves what was left over to the next working day and says how many. */
+  fun rescheduleLeftovers(ids: List<String>) {
+    val today = LocalDate.now().dayOfWeek.value
+    val target = ScheduleRules.nextWorkday(repository.state.value.workConfig, today)
+    val moved = repository.moveActivities(ids, target)
+    _scheduleStatus.value = when {
+      moved == 0 -> "No había nada para reprogramar."
+      else -> "$moved actividad${if (moved == 1) "" else "es"} pasó al ${dayNameOf(target)}."
+    }
+  }
+
+  private fun dayNameOf(day: Int): String =
+    listOf("lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo")
+      .getOrElse(day - 1) { "día $day" }
+
+  private fun scheduleSources() = repository.state.value.notes.map { note ->
+    ScheduleSource(
+      title = note.title.trim().ifBlank { "Nota sin título" },
+      summary = note.summary,
+      transcript = note.transcript.take(400),
+      noteId = note.id,
+    )
   }
 
   /** S5 — reads the notes with the configured workdays and hours and builds the weekly schedule. */
@@ -417,24 +523,23 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
     if (_generating.value) return
     viewModelScope.launch {
       _generating.value = true
-      val sources = repository.state.value.notes.map { note ->
-        ScheduleSource(
-          title = note.title.trim().ifBlank { "Nota sin título" },
-          summary = note.summary,
-          transcript = note.transcript.take(400),
-          noteId = note.id,
-        )
-      }
+      val sources = scheduleSources()
       val outcome = runCatching {
         aiClient.generateSchedule(_apiKey.value, _aiModel.value, config, sources)
       }
       outcome.fold(
         onSuccess = { plan ->
           repository.replaceAiActivities(plan)
+          _fallbackOffered.value = false
           _scheduleStatus.value =
             "Cronograma creado con ${plan.size} actividad${if (plan.size == 1) "" else "es"}."
         },
-        onFailure = { error -> _scheduleStatus.value = error.message ?: "No pude generar el cronograma." },
+        onFailure = { error ->
+          _fallbackOffered.value = true
+          _scheduleStatus.value =
+            (error.message ?: "No pude generar el cronograma.") +
+            " Podés generar una versión simple, sin IA."
+        },
       )
       _generating.value = false
     }

@@ -12,6 +12,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FactCheck
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
@@ -38,12 +39,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.voicenotes.app.ui.components.parseClockText
+import java.time.LocalDate
+import java.time.LocalTime
 import com.voicenotes.app.data.Activity
 import com.voicenotes.app.data.Checklist
+import com.voicenotes.app.data.ScheduleRules
 import com.voicenotes.app.data.WorkConfig
 import com.voicenotes.app.export.ChecklistExporter
 import com.voicenotes.app.export.NoteSharing
 import com.voicenotes.app.export.ScheduleExporter
+import com.voicenotes.app.ui.components.ActivityDraft
+import com.voicenotes.app.ui.components.ActivityEditorDialog
+import com.voicenotes.app.ui.components.clockText
+import com.voicenotes.app.ui.components.dayNames
 import com.voicenotes.app.ui.NotesViewModel
 
 /** S1–S5 — the activities section: weekly schedule, work setup and the AI generator. */
@@ -57,12 +66,15 @@ fun ActivitiesScreen(
   val workConfig by viewModel.workConfig.collectAsStateWithLifecycle()
   val scheduleStatus by viewModel.scheduleStatus.collectAsStateWithLifecycle()
   val generating by viewModel.generating.collectAsStateWithLifecycle()
+  val fallbackOffered by viewModel.fallbackOffered.collectAsStateWithLifecycle()
   val aiConfigured by viewModel.aiConfigured.collectAsStateWithLifecycle()
   val checklists by viewModel.checklists.collectAsStateWithLifecycle()
   val context = LocalContext.current
   var showSetup by remember { mutableStateOf(false) }
   var showChecklistDialog by remember { mutableStateOf(false) }
   var showExport by remember { mutableStateOf(false) }
+  var editorDraft by remember { mutableStateOf<ActivityDraft?>(null) }
+  var editorHeading by remember { mutableStateOf("Nueva actividad") }
 
   androidx.compose.material3.Scaffold(
     containerColor = androidx.compose.ui.graphics.Color.Transparent,
@@ -114,7 +126,20 @@ fun ActivitiesScreen(
           enabled = aiConfigured && workConfig != null && !generating,
           label = { Text(if (generating) "Armando cronograma..." else "Generar con la IA") },
         )
+        AssistChip(
+          onClick = {
+            editorHeading = "Nueva actividad"
+            editorDraft = ActivityDraft(dayOfWeek = LocalDate.now().dayOfWeek.value)
+          },
+          label = { Text("Nueva actividad") },
+        )
         if (generating) CircularProgressIndicator(modifier = Modifier.padding(top = 8.dp))
+      }
+
+      if (fallbackOffered) {
+        TextButton(onClick = { viewModel.generateScheduleLocally() }) {
+          Text("Generar versión simple (sin IA)")
+        }
       }
 
       if (!aiConfigured) {
@@ -126,16 +151,46 @@ fun ActivitiesScreen(
 
       Spacer(Modifier.padding(8.dp))
 
+      val now = LocalTime.now()
+      val today = LocalDate.now().dayOfWeek.value
+      val leftovers = ScheduleRules.leftovers(activities, today, now.hour * 60 + now.minute)
+      if (leftovers.isNotEmpty()) {
+        LeftoversCard(
+          count = leftovers.size,
+          onReschedule = { viewModel.rescheduleLeftovers(leftovers.map { it.id }) },
+        )
+      }
+
       if (activities.isEmpty()) {
         Text(
           "Sin actividades todavía. Graba notas con tareas y generá el cronograma con la IA.",
           style = MaterialTheme.typography.bodyMedium,
         )
       } else {
+        val clash = ScheduleRules.clashes(activities).firstOrNull()
+        if (clash != null) {
+          Text(
+            "Se solapan el ${dayNames[clash.dayOfWeek - 1]}: \"${clash.firstTitle}\" y \"${clash.secondTitle}\".",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error,
+          )
+        }
         WeeklySchedule(
           activities,
           onToggleDone = { id, done -> viewModel.toggleActivityDone(id, done) },
           onDelete = viewModel::deleteActivity,
+          onEdit = { activity ->
+            editorHeading = "Editar actividad"
+            editorDraft = ActivityDraft(
+              id = activity.id,
+              title = activity.title,
+              dayOfWeek = activity.dayOfWeek,
+              startMinutes = activity.startMinutes,
+              durationMinutes = activity.durationMinutes,
+              repeatDays = activity.repeatDays,
+              noteId = activity.noteId,
+            )
+          },
         )
       }
 
@@ -164,6 +219,18 @@ fun ActivitiesScreen(
       viewModel.saveWorkConfig(it)
       showSetup = false
     })
+  }
+
+  editorDraft?.let { draft ->
+    ActivityEditorDialog(
+      heading = editorHeading,
+      draft = draft,
+      onDismiss = { editorDraft = null },
+      onSave = { saved ->
+        viewModel.saveActivity(saved)
+        editorDraft = null
+      },
+    )
   }
 
   if (showExport) {
@@ -212,8 +279,8 @@ private fun WorkSummary(config: WorkConfig?) {
     text = if (config == null) {
       "Días y horario de trabajo sin configurar."
     } else {
-      "Trabajo: " + config.dayNumbers.joinToString(" · ") { _DAY_NAMES[it - 1] } +
-        " de " + clock(config.startMinutes) + " a " + clock(config.endMinutes)
+      "Trabajo: " + config.dayNumbers.joinToString(" · ") { dayNames[it - 1] } +
+        " de " + clockText(config.startMinutes) + " a " + clockText(config.endMinutes)
     },
     style = MaterialTheme.typography.bodyMedium,
     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -221,24 +288,18 @@ private fun WorkSummary(config: WorkConfig?) {
 }
 
 /** S3/S4 — choose the workdays (with presets) and the working hour range. */
-private fun parseClock(text: String): Int? = runCatching {
-  val parts = text.trim().split(":")
-  val hour = parts[0].toInt()
-  val minute = parts.getOrNull(1)?.toIntOrNull() ?: 0
-  if (hour !in 0..23 || minute !in 0..59) null else hour * 60 + minute
-}.getOrDefault(null)
-
 @Composable
 private fun WeeklySchedule(
   activities: List<Activity>,
   onToggleDone: (String, Boolean) -> Unit,
   onDelete: (String) -> Unit,
+  onEdit: (Activity) -> Unit,
 ) {
   (1..7).forEach { day ->
-    val dayActivities = activities.filter { it.dayOfWeek == day }
+    val dayActivities = activities.filter { day in ScheduleRules.daysOf(it) }
     if (dayActivities.isEmpty()) return@forEach
     Text(
-      _DAY_NAMES[day - 1].replaceFirstChar { it.uppercase() },
+      dayNames[day - 1].replaceFirstChar { it.uppercase() },
       style = MaterialTheme.typography.titleMedium,
       modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
     )
@@ -258,19 +319,28 @@ private fun WeeklySchedule(
           )
           Column(modifier = Modifier.weight(1f)) {
             Text(
-              clock(activity.startMinutes) + "  " + activity.title,
+              clockText(activity.startMinutes) + "–" + clockText(ScheduleRules.endOf(activity)) +
+                "  " + activity.title,
               style = if (activity.done) {
                 MaterialTheme.typography.bodyLarge.copy(textDecoration = androidx.compose.ui.text.style.TextDecoration.LineThrough)
               } else {
                 MaterialTheme.typography.bodyLarge
               },
             )
-            if (activity.source == Activity.SOURCE_AI) {
-              Text(
-                if (activity.noteId != null) "De tus notas" else "Sugerido por la IA",
-                style = MaterialTheme.typography.bodySmall,
-              )
+            val detail = buildList {
+              if (activity.repeatDays.isNotEmpty()) {
+                add("repite " + activity.repeatDays.joinToString(", ") { dayNames[it - 1] })
+              }
+              if (activity.source == Activity.SOURCE_AI) {
+                add(if (activity.noteId != null) "de tus notas" else "sugerido por la IA")
+              }
+            }.joinToString(" · ")
+            if (detail.isNotEmpty()) {
+              Text(detail, style = MaterialTheme.typography.bodySmall)
             }
+          }
+          IconButton(onClick = { onEdit(activity) }) {
+            Icon(Icons.Filled.Edit, contentDescription = "Editar actividad")
           }
           IconButton(onClick = { onDelete(activity.id) }) {
             Icon(Icons.Filled.Delete, contentDescription = "Eliminar actividad")
@@ -281,9 +351,23 @@ private fun WeeklySchedule(
   }
 }
 
-private val _DAY_NAMES = listOf("lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo")
-
-private fun clock(minutes: Int): String = "%02d:%02d".format(minutes / 60, minutes % 60)
+/** S5 of the agenda block — what was never marked done, with the way out. */
+@Composable
+private fun LeftoversCard(count: Int, onReschedule: () -> Unit) {
+  ElevatedCard(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+    Row(
+      verticalAlignment = Alignment.CenterVertically,
+      modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+    ) {
+      Text(
+        text = if (count == 1) "Quedó 1 actividad sin hacer." else "Quedaron $count actividades sin hacer.",
+        style = MaterialTheme.typography.bodyMedium,
+        modifier = Modifier.weight(1f),
+      )
+      TextButton(onClick = onReschedule) { Text("Pasar a mañana") }
+    }
+  }
+}
 
 @Composable
 private fun WorkSetupDialog(
@@ -294,8 +378,8 @@ private fun WorkSetupDialog(
   var days by remember {
     mutableStateOf(current?.dayNumbers?.toSet() ?: setOf(1, 2, 3, 4, 5))
   }
-  var start by remember { mutableStateOf(clock(current?.startMinutes ?: 420)) }
-  var end by remember { mutableStateOf(clock(current?.endMinutes ?: 960)) }
+  var start by remember { mutableStateOf(clockText(current?.startMinutes ?: 420)) }
+  var end by remember { mutableStateOf(clockText(current?.endMinutes ?: 960)) }
   var problem by remember { mutableStateOf<String?>(null) }
 
   androidx.compose.material3.AlertDialog(
@@ -316,7 +400,7 @@ private fun WorkSetupDialog(
               onClick = {
                 days = if (day in days) days - day else days + day
               },
-              label = { Text(_DAY_NAMES[day - 1].take(2).replaceFirstChar { c -> c.uppercase() }) },
+              label = { Text(dayNames[day - 1].take(2).replaceFirstChar { c -> c.uppercase() }) },
             )
           }
         }
@@ -345,8 +429,8 @@ private fun WorkSetupDialog(
     },
     confirmButton = {
       TextButton(onClick = {
-        val from = parseClock(start)
-        val to = parseClock(end)
+        val from = parseClockText(start)
+        val to = parseClockText(end)
         when {
           days.isEmpty() -> problem = "Elegí al menos un día laboral."
           from == null || to == null -> problem = "Horarios incompletos; usá el formato 7:00."

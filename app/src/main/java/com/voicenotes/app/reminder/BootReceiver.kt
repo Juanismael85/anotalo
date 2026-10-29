@@ -14,7 +14,8 @@ class BootReceiver : BroadcastReceiver() {
   override fun onReceive(context: Context, intent: Intent) {
     val action = intent.action ?: return
     if (action != Intent.ACTION_BOOT_COMPLETED && action != Intent.ACTION_MY_PACKAGE_REPLACED) return
-    val notes = LibraryStore.get(context).state.value.notes
-    ReminderScheduler(context).rescheduleAll(notes)
+    val library = LibraryStore.get(context).state.value
+    ReminderScheduler(context).rescheduleAll(library.notes)
+    DailyAgendaScheduler(context).schedule(library.workConfig)
   }
 }
