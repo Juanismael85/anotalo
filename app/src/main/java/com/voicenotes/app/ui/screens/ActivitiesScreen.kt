@@ -62,6 +62,7 @@ fun ActivitiesScreen(
   val context = LocalContext.current
   var showSetup by remember { mutableStateOf(false) }
   var showChecklistDialog by remember { mutableStateOf(false) }
+  var showExport by remember { mutableStateOf(false) }
 
   androidx.compose.material3.Scaffold(
     containerColor = androidx.compose.ui.graphics.Color.Transparent,
@@ -70,13 +71,7 @@ fun ActivitiesScreen(
         title = { Text("Actividades", style = MaterialTheme.typography.headlineMedium) },
         actions = {
           IconButton(
-            onClick = {
-              NoteSharing.shareText(
-                context,
-                "Cronograma semanal",
-                ScheduleExporter.plainText(activities, workConfig),
-              )
-            },
+            onClick = { showExport = true },
             enabled = activities.isNotEmpty(),
           ) {
             Icon(Icons.Filled.FactCheck, contentDescription = "Exportar cronograma")
@@ -169,6 +164,35 @@ fun ActivitiesScreen(
       viewModel.saveWorkConfig(it)
       showSetup = false
     })
+  }
+
+  if (showExport) {
+    androidx.compose.material3.AlertDialog(
+      onDismissRequest = { showExport = false },
+      title = { Text("Exportar cronograma") },
+      text = { Text("¿Cómo querés compartirlo?") },
+      confirmButton = {
+        TextButton(
+          onClick = {
+            showExport = false
+            val file = NoteSharing.schedulePdfFor(context, activities, workConfig)
+            NoteSharing.shareFile(context, file, "application/pdf", "Cronograma semanal")
+          },
+        ) { Text("Como PDF") }
+      },
+      dismissButton = {
+        TextButton(
+          onClick = {
+            showExport = false
+            NoteSharing.shareText(
+              context,
+              "Cronograma semanal",
+              ScheduleExporter.plainText(activities, workConfig),
+            )
+          },
+        ) { Text("Como texto") }
+      },
+    )
   }
 
   if (showChecklistDialog) {

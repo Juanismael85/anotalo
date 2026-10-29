@@ -13,6 +13,9 @@ Branch `feature/bloque-actividades` · runner `gradle testDebugUnitTest` · entr
 - **S7**: "que se puedan crear check list que tambien se puedan exportar para ir marcando las que ya esten listas" — checklists con ítems marcables y export.
 - **S8**: "las notas ya cargadas las que aparecen en la pantalla principal tambien se puedan marcar como listas".
 
+- **S9**: "que al marcar una nota como lista puedas filtrarlas en el Home" — el Home ofrece tres estados: Todas / Pendientes / Listas (n); la fila de chips aparece solo si hay alguna nota lista o el filtro no es "Todas".
+- **S10**: "que el cronograma se pueda mandar como PDF y no solo texto" — el botón de exportar abre un selector: "Como PDF" o "Como texto".
+
 Convenciones (mismo criterio que recordatorios): la IA reemplaza solo actividades generadas por IA, nunca las manuales. Campos nuevos de `notes.json` son aditivos con defaults.
 
 ## Tasks
@@ -24,6 +27,8 @@ Convenciones (mismo criterio que recordatorios): la IA reemplaza solo actividade
 - T5 (S6,S7 · export): `export/ScheduleExporter`, `export/ChecklistExporter` (texto, puros, con tests) + compartir vía `NoteSharing`. ✅ `93d42aa` + 6 tests `ActivitiesExportTest` (102 tests verdes)
 - T6 (S7 · UI checklists): crear/editar ítems, marcar, exportar. ✅ `93d42aa`
 - T7 (S8 · UI notas): check "marcar como lista" en tarjeta del Home + estado persistente + tests. ✅ `93d42aa`
+- T8 (S9 · UI): filtro de tres estados en el Home (`DoneFilter` ALL/PENDING/DONE, `visibleNotes`), sin persistencia (estado de pantalla). 102 tests verdes.
+- T9 (S10 · export): `PdfExport.writeSchedule` + `NoteSharing.schedulePdfFor` + diálogo de export en `ActivitiesScreen`. 102 tests verdes.
 
 ## Log
 
@@ -32,3 +37,7 @@ Convenciones (mismo criterio que recordatorios): la IA reemplaza solo actividade
 - Espejo Engram pendiente (proyecto no resuelve desde `/`).
 - L2 (2026-10-29 · verificación en dispositivo, `127.0.0.1:5554`): `ActivitiesScreen` sin `Scaffold` renderizaba vacía; reescrita con `Scaffold(containerColor=Transparent)` + `ScreenGradient()` copiando Radar/Calendar. Verificado end-to-end: pestaña Actividades, diálogo de horario (Lun-Vie, 07:00-16:00) guardado en `notes.json` (`workConfig`), "Generar con la IA" con las 3 notas reales produjo 6 actividades `source=ai` con `noteId` apuntando a la nota de origen, persistidas tras reiniciar. Checklist creado, ítem agregado y marcado ("1 de 1 listos", tachado) y exportado por el share sheet ("Compras para sala 1 de 1 listos [x] Globos..."). Toggle de nota lista en el Home: título tachado + ícono lleno, revertido tras la prueba. Datos de prueba eliminados.
 - L3 (2026-10-29 · límite externo): regeneraciones posteriores devolvieron error de Gemini "This model is currently experiencing high demand" (503); la app lo muestra en pantalla como "Error de la IA: ...". No es un defecto de la app: el primer cronograma se generó correctamente y queda guardado.
+
+- L4 (2026-10-29): "exacto si aplicalo, y dome que mas sujieres con tu experiencia?" — se implementan S9 (filtro de notas listas en el Home) y S10 (cronograma en PDF además de texto).
+- L5 (2026-10-29 · verificación en dispositivo): PDF del cronograma generado (44 KB, `%PDF-1.4`, 2 páginas) en `cache/exports/cronograma-semanal.pdf` y aceptado por el share sheet ("Se compartirá 1 archivo"). Filtro del Home probado en los tres estados con una nota lista: "Listas (1)" muestra solo la lista, "Pendientes" las otras dos, y al volver a "Todas" aparece la fila completa; al revertir las marcas la fila de chips se oculta. Sin renderizador de PDF en el entorno: validación estructural, no visual.
+- Nota de diagnóstico: una nota lista pareció desaparecer de "Todas"; era el offset retenido del `LazyColumn` tras cambiar de filtro, no un bug del filtro (confirmado al volver a la parte superior de la lista).

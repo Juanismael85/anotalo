@@ -4,7 +4,9 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.core.content.FileProvider
+import com.voicenotes.app.data.Activity
 import com.voicenotes.app.data.Note
+import com.voicenotes.app.data.WorkConfig
 import java.io.File
 
 /** S15 — Android intents behind "Compartir". */
@@ -33,6 +35,18 @@ object NoteSharing {
       addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
     context.startActivity(Intent.createChooser(intent, "Compartir nota"))
+  }
+
+  /** Writes the weekly schedule PDF into cacheDir/exports so the FileProvider can expose it. */
+  fun schedulePdfFor(
+    context: Context,
+    activities: List<Activity>,
+    config: WorkConfig?,
+  ): File {
+    val dir = File(context.cacheDir, "exports").apply { mkdirs() }
+    val file = File(dir, ScheduleExporter.fileName("pdf"))
+    PdfExport.writeSchedule(file, activities, config)
+    return file
   }
 
   /** Writes the PDF into cacheDir/exports so the FileProvider can expose it. */

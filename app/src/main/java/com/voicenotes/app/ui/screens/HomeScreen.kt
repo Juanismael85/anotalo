@@ -112,6 +112,7 @@ fun HomeScreen(
   val backupStatus by viewModel.backupStatus.collectAsStateWithLifecycle()
   val backupError by viewModel.backupError.collectAsStateWithLifecycle()
   var backupMessage by remember { mutableStateOf<String?>(null) }
+  var doneFilter by remember { mutableStateOf(DoneFilter.ALL) }
   var pendingRestore by remember { mutableStateOf<android.net.Uri?>(null) }
 
   val exportLauncher = rememberLauncherForActivityResult(
@@ -252,7 +253,20 @@ fun HomeScreen(
           onFolderFilter = viewModel::setFolderFilter,
           onTagFilter = viewModel::setTagFilter,
         )
-        if (notes.isEmpty()) {
+        val doneCount = notes.count { it.done }
+        if (doneCount > 0 || doneFilter != DoneFilter.ALL) {
+          DoneFilterRow(
+            selected = doneFilter,
+            doneCount = doneCount,
+            onSelect = { doneFilter = it },
+          )
+        }
+        val visibleNotes = when (doneFilter) {
+          DoneFilter.ALL -> notes
+          DoneFilter.PENDING -> notes.filterNot { it.done }
+          DoneFilter.DONE -> notes.filter { it.done }
+        }
+        if (visibleNotes.isEmpty()) {
           EmptyState(
             icon = Icons.Filled.GraphicEq,
             title = if (query.isBlank() && folderFilter == null && tagFilter == null) {
@@ -267,7 +281,7 @@ fun HomeScreen(
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 96.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
           ) {
-            items(notes, key = { it.id }) { note ->
+            items(visibleNotes, key = { it.id }) { note ->
               NoteCard(
                 note = note,
                 title = viewModel.displayTitle(note),
@@ -492,6 +506,36 @@ private fun NoteCard(
           tint = if (note.done) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
         )
       }
+    }
+  }
+}
+
+/** S8/S9 — which notes the library shows: all of them, only the pending ones or only the finished. */
+private enum class DoneFilter { ALL, PENDING, DONE }
+
+@Composable
+private fun DoneFilterRow(
+  selected: DoneFilter,
+  doneCount: Int,
+  onSelect: (DoneFilter) -> Unit,
+) {
+  LazyRow(
+    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 2.dp),
+    horizontalArrangement = Arrangement.spacedBy(8.dp),
+  ) {
+    items(
+      listOf(
+        DoneFilter.ALL to "Todas",
+        DoneFilter.PENDING to "Pendientes",
+        DoneFilter.DONE to "Listas ($doneCount)",
+      ),
+    ) { (value, label) ->
+      FilterChip(
+        selected = selected == value,
+        onClick = { onSelect(value) },
+        label = { Text(label) },
+        colors = appFilterChipColors(),
+      )
     }
   }
 }
