@@ -57,6 +57,10 @@ data class Activity(
   val noteId: String? = null,
   val done: Boolean = false,
   val doneAt: Long? = null,
+  /** S2 (agenda) — how long the block lasts; a point in time is not a plan. */
+  val durationMinutes: Int = 60,
+  /** S2 (agenda) — other weekdays it repeats on besides [dayOfWeek]. Empty means a one-off. */
+  val repeatDays: List<Int> = emptyList(),
 ) {
   companion object {
     const val SOURCE_MANUAL = "manual"

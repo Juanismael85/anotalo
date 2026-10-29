@@ -405,6 +405,8 @@ class NotesRepository(
     dayOfWeek: Int,
     startMinutes: Int,
     noteId: String? = null,
+    durationMinutes: Int = ScheduleRules.DEFAULT_DURATION,
+    repeatDays: List<Int> = emptyList(),
   ): Activity {
     val activity = Activity(
       id = newId("act"),
@@ -413,9 +415,55 @@ class NotesRepository(
       startMinutes = startMinutes.coerceIn(0, 1439),
       source = Activity.SOURCE_MANUAL,
       noteId = noteId,
+      durationMinutes = durationMinutes.coerceIn(ScheduleRules.MIN_DURATION, ScheduleRules.MAX_DURATION),
+      repeatDays = repeatDays.filter { it in 1..7 }.distinct().sorted(),
     )
     commit(_state.value.copy(activities = _state.value.activities + activity))
     return activity
+  }
+
+  /** S2 (agenda) — the same slot with a new day, hour, length or repeat set. */
+  fun updateActivity(
+    id: String,
+    title: String,
+    dayOfWeek: Int,
+    startMinutes: Int,
+    durationMinutes: Int,
+    repeatDays: List<Int>,
+  ) {
+    commit(
+      _state.value.copy(
+        activities = _state.value.activities.map {
+          if (it.id == id) {
+            it.copy(
+              title = title.trim(),
+              dayOfWeek = dayOfWeek.coerceIn(1, 7),
+              startMinutes = startMinutes.coerceIn(0, 1439),
+              durationMinutes = durationMinutes.coerceIn(ScheduleRules.MIN_DURATION, ScheduleRules.MAX_DURATION),
+              repeatDays = repeatDays.filter { day -> day in 1..7 }.distinct().sorted(),
+            )
+          } else {
+            it
+          }
+        },
+      ),
+    )
+  }
+
+  /** S5 (agenda) — moves the leftovers to the next working day, keeping their hour. */
+  fun moveActivities(ids: Collection<String>, dayOfWeek: Int): Int {
+    if (ids.isEmpty()) return 0
+    var moved = 0
+    val updated = _state.value.activities.map {
+      if (it.id in ids) {
+        moved++
+        it.copy(dayOfWeek = dayOfWeek.coerceIn(1, 7))
+      } else {
+        it
+      }
+    }
+    commit(_state.value.copy(activities = updated))
+    return moved
   }
 
   fun deleteActivity(id: String) {
