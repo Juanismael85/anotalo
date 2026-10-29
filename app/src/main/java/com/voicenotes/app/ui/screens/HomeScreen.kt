@@ -22,6 +22,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.GraphicEq
@@ -29,6 +30,7 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -271,6 +273,7 @@ fun HomeScreen(
                 title = viewModel.displayTitle(note),
                 folderName = folders.firstOrNull { it.id == note.folderId }?.name,
                 onClick = { onOpenNote(note.id) },
+                onToggleDone = { done -> viewModel.setNoteDone(note.id, done) },
               )
             }
           }
@@ -405,6 +408,7 @@ private fun NoteCard(
   title: String,
   folderName: String?,
   onClick: () -> Unit,
+  onToggleDone: (Boolean) -> Unit,
 ) {
   Card(
     onClick = onClick,
@@ -439,7 +443,18 @@ private fun NoteCard(
       Column(Modifier.weight(1f)) {
         Text(
           text = title,
-          style = MaterialTheme.typography.titleMedium,
+          style = MaterialTheme.typography.titleMedium.copy(
+            textDecoration = if (note.done) {
+              androidx.compose.ui.text.style.TextDecoration.LineThrough
+            } else {
+              androidx.compose.ui.text.style.TextDecoration.None
+            },
+          ),
+          color = if (note.done) {
+            MaterialTheme.colorScheme.onSurfaceVariant
+          } else {
+            MaterialTheme.colorScheme.onSurface
+          },
           maxLines = 1,
           overflow = TextOverflow.Ellipsis,
         )
@@ -469,6 +484,13 @@ private fun NoteCard(
             overflow = TextOverflow.Ellipsis,
           )
         }
+      }
+      IconButton(onClick = { onToggleDone(!note.done) }) {
+        Icon(
+          imageVector = if (note.done) Icons.Filled.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
+          contentDescription = if (note.done) "Marcar como pendiente" else "Marcar como lista",
+          tint = if (note.done) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
       }
     }
   }

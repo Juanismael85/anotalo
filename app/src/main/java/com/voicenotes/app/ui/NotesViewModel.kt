@@ -364,6 +364,27 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
     .map { it.workConfig }
     .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+  val checklists: StateFlow<List<com.voicenotes.app.data.Checklist>> = repository.state
+    .map { it.checklists }
+    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+  fun createChecklist(title: String): com.voicenotes.app.data.Checklist =
+    repository.createChecklist(title)
+
+  fun deleteChecklist(id: String) = repository.deleteChecklist(id)
+
+  fun addChecklistItem(checklistId: String, text: String) {
+    repository.addChecklistItem(checklistId, text)
+  }
+
+  fun toggleChecklistItem(checklistId: String, itemId: String, done: Boolean) {
+    repository.setChecklistItemDone(checklistId, itemId, done)
+  }
+
+  fun deleteChecklistItem(checklistId: String, itemId: String) {
+    repository.deleteChecklistItem(checklistId, itemId)
+  }
+
   private val _scheduleStatus = MutableStateFlow<String?>(null)
   val scheduleStatus: StateFlow<String?> = _scheduleStatus.asStateFlow()
 
@@ -434,6 +455,11 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
     val updated = repository.state.value.notes.firstOrNull { it.id == noteId }
     if (updated != null) scheduler.schedule(updated)
     _reminderStatus.value = if (at == null) "Recordatorio eliminado." else "Recordatorio guardado."
+  }
+
+  /** S8 — the home screen can mark a note as finished without opening it. */
+  fun setNoteDone(noteId: String, done: Boolean) {
+    repository.setNoteDone(noteId, done)
   }
 
   fun markReminderDone(noteId: String, done: Boolean = true) {

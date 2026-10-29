@@ -10,9 +10,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FactCheck
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
@@ -22,6 +24,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -32,10 +35,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.voicenotes.app.data.Activity
+import com.voicenotes.app.data.Checklist
 import com.voicenotes.app.data.WorkConfig
+import com.voicenotes.app.export.ChecklistExporter
+import com.voicenotes.app.export.NoteSharing
+import com.voicenotes.app.export.ScheduleExporter
 import com.voicenotes.app.ui.NotesViewModel
 
 /** S1–S5 — the activities section: weekly schedule, work setup and the AI generator. */
@@ -43,7 +51,6 @@ import com.voicenotes.app.ui.NotesViewModel
 @Composable
 fun ActivitiesScreen(
   viewModel: NotesViewModel,
-  onExport: () -> Unit = {},
   bottomBar: @Composable () -> Unit,
 ) {
   val activities by viewModel.activities.collectAsStateWithLifecycle()
@@ -51,67 +58,127 @@ fun ActivitiesScreen(
   val scheduleStatus by viewModel.scheduleStatus.collectAsStateWithLifecycle()
   val generating by viewModel.generating.collectAsStateWithLifecycle()
   val aiConfigured by viewModel.aiConfigured.collectAsStateWithLifecycle()
+  val checklists by viewModel.checklists.collectAsStateWithLifecycle()
+  val context = LocalContext.current
   var showSetup by remember { mutableStateOf(false) }
+  var showChecklistDialog by remember { mutableStateOf(false) }
 
-  Column(
-    modifier = Modifier
-      .fillMaxSize()
-      .verticalScroll(rememberScrollState())
-      .padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
-  ) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-      Text("Actividades", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
-      IconButton(onClick = onExport) {
-        Icon(Icons.Filled.FactCheck, contentDescription = "Exportar cronograma")
+  androidx.compose.material3.Scaffold(
+    containerColor = androidx.compose.ui.graphics.Color.Transparent,
+    topBar = {
+      androidx.compose.material3.TopAppBar(
+        title = { Text("Actividades", style = MaterialTheme.typography.headlineMedium) },
+        actions = {
+          IconButton(
+            onClick = {
+              NoteSharing.shareText(
+                context,
+                "Cronograma semanal",
+                ScheduleExporter.plainText(activities, workConfig),
+              )
+            },
+            enabled = activities.isNotEmpty(),
+          ) {
+            Icon(Icons.Filled.FactCheck, contentDescription = "Exportar cronograma")
+          }
+          IconButton(onClick = { showSetup = true }) {
+            Icon(Icons.Filled.Settings, contentDescription = "Configuración")
+          }
+        },
+        colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(
+          containerColor = androidx.compose.ui.graphics.Color.Transparent,
+        ),
+      )
+    },
+    bottomBar = bottomBar,
+  ) { padding ->
+    com.voicenotes.app.ui.components.ScreenGradient()
+    Column(
+      modifier = Modifier
+        .fillMaxSize()
+        .padding(padding)
+        .verticalScroll(rememberScrollState())
+        .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
+    ) {
+      WorkSummary(workConfig)
+      scheduleStatus?.let { message ->
+        Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+        LaunchedEffect(message) {
+          kotlinx.coroutines.delay(6_000)
+          viewModel.clearScheduleStatus()
+        }
       }
-      IconButton(onClick = { showSetup = true }) {
-        Icon(Icons.Filled.Settings, contentDescription = "Configuración")
+      Spacer(Modifier.padding(4.dp))
+
+      Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+      ) {
+        AssistChip(
+          onClick = { viewModel.generateWeeklySchedule() },
+          enabled = aiConfigured && workConfig != null && !generating,
+          label = { Text(if (generating) "Armando cronograma..." else "Generar con la IA") },
+        )
+        if (generating) CircularProgressIndicator(modifier = Modifier.padding(top = 8.dp))
       }
-    }
 
-    WorkSummary(workConfig)
-    scheduleStatus?.let {
-      Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
-      LaunchedEffect(it) { viewModel.clearScheduleStatus() }
-    }
-    Spacer(Modifier.padding(4.dp))
+      if (!aiConfigured) {
+        Text(
+          "Configurá tu clave de IA en Ajustes para armar el cronograma.",
+          style = MaterialTheme.typography.bodySmall,
+        )
+      }
 
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp))
-    {
-      AssistChip(
-        onClick = { viewModel.generateWeeklySchedule() },
-        enabled = aiConfigured && workConfig != null && !generating,
-        label = { Text(if (generating) "Armando cronograma..." else "Generar con la IA") },
+      Spacer(Modifier.padding(8.dp))
+
+      if (activities.isEmpty()) {
+        Text(
+          "Sin actividades todavía. Graba notas con tareas y generá el cronograma con la IA.",
+          style = MaterialTheme.typography.bodyMedium,
+        )
+      } else {
+        WeeklySchedule(
+          activities,
+          onToggleDone = { id, done -> viewModel.toggleActivityDone(id, done) },
+          onDelete = viewModel::deleteActivity,
+        )
+      }
+
+      Spacer(Modifier.padding(12.dp))
+
+      ChecklistsSection(
+        checklists = checklists,
+        onNew = { showChecklistDialog = true },
+        onAddItem = viewModel::addChecklistItem,
+        onToggleItem = viewModel::toggleChecklistItem,
+        onDeleteItem = viewModel::deleteChecklistItem,
+        onDelete = viewModel::deleteChecklist,
+        onShare = { checklist ->
+          NoteSharing.shareText(
+            context,
+            checklist.title,
+            ChecklistExporter.plainText(checklist),
+          )
+        },
       )
-      if (generating) CircularProgressIndicator(modifier = Modifier.padding(top = 8.dp))
-    }
-
-    if (!aiConfigured) {
-      Text(
-        "Configurá tu clave de IA en Ajustes para armar el cronograma.",
-        style = MaterialTheme.typography.bodySmall,
-      )
-    }
-
-    Spacer(Modifier.padding(8.dp))
-
-    if (activities.isEmpty()) {
-      Text(
-        "Sin actividades todavía. Graba notas con tareas y generá el cronograma con la IA.",
-        style = MaterialTheme.typography.bodyMedium,
-      )
-    } else {
-      WeeklySchedule(activities, onToggleDone = { id, done -> viewModel.toggleActivityDone(id, done) }, onDelete = viewModel::deleteActivity)
     }
   }
-
-  bottomBar()
 
   if (showSetup) {
     WorkSetupDialog(workConfig, onDismiss = { showSetup = false }, onSave = {
       viewModel.saveWorkConfig(it)
       showSetup = false
     })
+  }
+
+  if (showChecklistDialog) {
+    NewChecklistDialog(
+      onDismiss = { showChecklistDialog = false },
+      onCreate = { title ->
+        viewModel.createChecklist(title)
+        showChecklistDialog = false
+      },
+    )
   }
 }
 
@@ -268,3 +335,130 @@ private fun WorkSetupDialog(
   )
 }
 
+
+/** S7 — the checklists the user keeps next to the schedule; each one can be exported. */
+@Composable
+private fun ChecklistsSection(
+  checklists: List<Checklist>,
+  onNew: () -> Unit,
+  onAddItem: (String, String) -> Unit,
+  onToggleItem: (String, String, Boolean) -> Unit,
+  onDeleteItem: (String, String) -> Unit,
+  onDelete: (String) -> Unit,
+  onShare: (Checklist) -> Unit,
+) {
+  Row(verticalAlignment = Alignment.CenterVertically) {
+    Text("Checklists", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+    TextButton(onClick = onNew) { Text("Nueva") }
+  }
+  if (checklists.isEmpty()) {
+    Text(
+      "Todavía no hay listas. Creá una para ir marcando lo que ya está listo.",
+      style = MaterialTheme.typography.bodyMedium,
+    )
+    return
+  }
+  checklists.forEach { checklist ->
+    ChecklistCard(
+      checklist = checklist,
+      onAddItem = { text -> onAddItem(checklist.id, text) },
+      onToggleItem = { itemId, done -> onToggleItem(checklist.id, itemId, done) },
+      onDeleteItem = { itemId -> onDeleteItem(checklist.id, itemId) },
+      onDelete = { onDelete(checklist.id) },
+      onShare = { onShare(checklist) },
+    )
+  }
+}
+
+@Composable
+private fun ChecklistCard(
+  checklist: Checklist,
+  onAddItem: (String) -> Unit,
+  onToggleItem: (String, Boolean) -> Unit,
+  onDeleteItem: (String) -> Unit,
+  onDelete: () -> Unit,
+  onShare: () -> Unit,
+) {
+  var draft by remember { mutableStateOf("") }
+  ElevatedCard(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+    Column(modifier = Modifier.padding(12.dp)) {
+      Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(modifier = Modifier.weight(1f)) {
+          Text(checklist.title, style = MaterialTheme.typography.titleMedium)
+          Text(
+            "${checklist.items.count { it.done }} de ${checklist.items.size} listos",
+            style = MaterialTheme.typography.bodySmall,
+          )
+        }
+        IconButton(onClick = onShare) {
+          Icon(Icons.Filled.Share, contentDescription = "Exportar lista")
+        }
+        IconButton(onClick = onDelete) {
+          Icon(Icons.Filled.Delete, contentDescription = "Eliminar lista")
+        }
+      }
+      checklist.items.forEach { item ->
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          Checkbox(checked = item.done, onCheckedChange = { onToggleItem(item.id, it) })
+          Text(
+            text = item.text,
+            style = MaterialTheme.typography.bodyMedium.copy(
+              textDecoration = if (item.done) {
+                androidx.compose.ui.text.style.TextDecoration.LineThrough
+              } else {
+                androidx.compose.ui.text.style.TextDecoration.None
+              },
+            ),
+            color = if (item.done) {
+              MaterialTheme.colorScheme.onSurfaceVariant
+            } else {
+              MaterialTheme.colorScheme.onSurface
+            },
+            modifier = Modifier.weight(1f),
+          )
+          IconButton(onClick = { onDeleteItem(item.id) }) {
+            Icon(Icons.Filled.Close, contentDescription = "Quitar ítem")
+          }
+        }
+      }
+      Row(verticalAlignment = Alignment.CenterVertically) {
+        OutlinedTextField(
+          value = draft,
+          onValueChange = { draft = it },
+          label = { Text("Agregar ítem") },
+          singleLine = true,
+          modifier = Modifier.weight(1f),
+        )
+        TextButton(
+          onClick = {
+            if (draft.isNotBlank()) {
+              onAddItem(draft)
+              draft = ""
+            }
+          },
+        ) { Text("Sumar") }
+      }
+    }
+  }
+}
+
+@Composable
+private fun NewChecklistDialog(onDismiss: () -> Unit, onCreate: (String) -> Unit) {
+  var title by remember { mutableStateOf("") }
+  androidx.compose.material3.AlertDialog(
+    onDismissRequest = onDismiss,
+    title = { Text("Nueva lista") },
+    text = {
+      OutlinedTextField(
+        value = title,
+        onValueChange = { title = it },
+        label = { Text("Nombre de la lista") },
+        singleLine = true,
+      )
+    },
+    confirmButton = {
+      TextButton(onClick = { if (title.isNotBlank()) onCreate(title) }) { Text("Crear") }
+    },
+    dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
+  )
+}
