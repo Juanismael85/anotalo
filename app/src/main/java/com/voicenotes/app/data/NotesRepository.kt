@@ -377,4 +377,127 @@ class NotesRepository(
       note.summary.lowercase().contains(needle)
 
   fun displayTitle(note: Note): String = note.title.trim().ifBlank { "Sin título" }
+  // ---- done notes (S8 activities feature) -----------------------------------
+
+  /** Marking a note as finished keeps it on the phone; the home screen shows the badge. */
+  fun setNoteDone(noteId: String, done: Boolean) {
+    commit(
+      _state.value.copy(
+        notes = _state.value.notes.map {
+          if (it.id == noteId) {
+            it.copy(done = done, doneAt = if (done) clock() else null, updatedAt = clock())
+          } else {
+            it
+          }
+        },
+      ),
+    )
+  }
+
+  // ---- activities (S2, S3, S4) ---------------------------------------------
+
+  fun setWorkConfig(config: WorkConfig?) {
+    commit(_state.value.copy(workConfig = config))
+  }
+
+  fun createActivity(
+    title: String,
+    dayOfWeek: Int,
+    startMinutes: Int,
+    noteId: String? = null,
+  ): Activity {
+    val activity = Activity(
+      id = newId("act"),
+      title = title.trim(),
+      dayOfWeek = dayOfWeek.coerceIn(1, 7),
+      startMinutes = startMinutes.coerceIn(0, 1439),
+      source = Activity.SOURCE_MANUAL,
+      noteId = noteId,
+    )
+    commit(_state.value.copy(activities = _state.value.activities + activity))
+    return activity
+  }
+
+  fun deleteActivity(id: String) {
+    commit(_state.value.copy(activities = _state.value.activities.filterNot { it.id == id }))
+  }
+
+  fun setActivityDone(id: String, done: Boolean) {
+    commit(
+      _state.value.copy(
+        activities = _state.value.activities.map {
+          if (it.id == id) it.copy(done = done, doneAt = if (done) clock() else null) else it
+        },
+      ),
+    )
+  }
+
+  /**
+   * S5 — the schedule generator writes here. Removes every activity it created before and keeps
+   * the manual ones untouched. Each planned entry becomes an owned, id-bearing activity.
+   */
+  fun replaceAiActivities(planned: List<PlannedActivity>) {
+    val kept = _state.value.activities.filter { it.source != Activity.SOURCE_AI }
+    val created = planned.map {
+      Activity(
+        id = newId("act"),
+        title = it.title.trim(),
+        dayOfWeek = it.dayOfWeek.coerceIn(1, 7),
+        startMinutes = it.startMinutes.coerceIn(0, 1439),
+        source = Activity.SOURCE_AI,
+        noteId = it.noteId,
+      )
+    }
+    commit(_state.value.copy(activities = kept + created))
+  }
+
+  // ---- checklists (S7) ------------------------------------------------------
+
+  fun createChecklist(title: String): Checklist {
+    val checklist = Checklist(id = newId("list"), title = title.trim(), createdAt = clock())
+    commit(_state.value.copy(checklists = _state.value.checklists + checklist))
+    return checklist
+  }
+
+  fun renameChecklist(id: String, title: String) {
+    val trimmed = title.trim()
+    if (trimmed.isEmpty()) return
+    commit(_state.value.copy(checklists = _state.value.checklists.map {
+      if (it.id == id) it.copy(title = trimmed) else it
+    }))
+  }
+
+  fun deleteChecklist(id: String) {
+    commit(_state.value.copy(checklists = _state.value.checklists.filterNot { it.id == id }))
+  }
+
+  fun addChecklistItem(checklistId: String, text: String): ChecklistItem? {
+    val trimmed = text.trim()
+    if (trimmed.isEmpty()) return null
+    val item = ChecklistItem(id = newId("item"), text = trimmed)
+    commit(_state.value.copy(checklists = _state.value.checklists.map {
+      if (it.id == checklistId) it.copy(items = it.items + item) else it
+    }))
+    return item
+  }
+
+  fun setChecklistItemDone(checklistId: String, itemId: String, done: Boolean) {
+    commit(_state.value.copy(checklists = _state.value.checklists.map {
+      if (it.id != checklistId) {
+        it
+      } else {
+        it.copy(
+          items = it.items.map { item ->
+            if (item.id == itemId) item.copy(done = done) else item
+          },
+        )
+      }
+    }))
+  }
+
+  fun deleteChecklistItem(checklistId: String, itemId: String) {
+    commit(_state.value.copy(checklists = _state.value.checklists.map {
+      if (it.id == checklistId) it.copy(items = it.items.filterNot { item -> item.id == itemId }) else it
+    }))
+  }
 }
