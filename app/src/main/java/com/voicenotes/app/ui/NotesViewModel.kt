@@ -11,11 +11,13 @@ import com.voicenotes.app.ai.GeminiClient
 import com.voicenotes.app.audio.RecordingService
 import com.voicenotes.app.audio.RecordingSession
 import com.voicenotes.app.data.BackupArchive
-import com.voicenotes.app.data.FileStorage
 import com.voicenotes.app.data.Folder
 import com.voicenotes.app.data.Note
-import com.voicenotes.app.data.NotesRepository
+import com.voicenotes.app.data.LibraryStore
 import com.voicenotes.app.data.Tag
+import com.voicenotes.app.reminder.ReminderScheduler
+import com.voicenotes.app.reminder.ReminderTime
+import com.voicenotes.app.reminder.Reminders
 import com.voicenotes.app.ui.theme.ThemeMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -34,9 +36,10 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
   /** Swappable so a fake client can replace it without Android in the constructor. */
   internal var aiClient: AiClient = GeminiClient()
 
-  private val repository = NotesRepository(
-    FileStorage(File(application.filesDir, "notes.json")),
-  )
+  // Shared with the reminder receiver so both write the same in-memory library (S23).
+  private val repository = LibraryStore.get(application)
+
+  private val scheduler = ReminderScheduler(application)
 
   private val _query = MutableStateFlow("")
   val query: StateFlow<String> = _query.asStateFlow()
@@ -91,8 +94,9 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
   val modelsError: StateFlow<String?> = _modelsError.asStateFlow()
 
   init {
-    repository.load()
     importOrphanRecordings()
+    // Alarms are lost on reboot, update or battery cleanup; opening the app re-arms them.
+    scheduler.rescheduleAll(repository.state.value.notes)
     viewModelScope.launch {
       RecordingSession.result.collect { finished ->
         if (finished != null) {
@@ -221,14 +225,21 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
       _aiRunning.value = false
       outcome
         .onSuccess { result ->
+          val reminderAt = ReminderTime.parse(result.reminder, System.currentTimeMillis())
           repository.applyAiResult(
             noteId = note.id,
             title = if (note.title.isBlank()) result.title else "",
             transcript = result.transcript,
             summary = result.summary,
             tagNames = result.tags,
+            reminderAt = reminderAt,
           )
-          _aiStatus.value = "La IA actualizó la nota."
+          repository.state.value.notes.firstOrNull { it.id == note.id }?.let(scheduler::schedule)
+          _aiStatus.value = if (reminderAt != null) {
+            "La IA actualizó la nota y agregó el recordatorio."
+          } else {
+            "La IA actualizó la nota."
+          }
         }
         .onFailure { error ->
           _aiError.value = when (error) {
@@ -307,6 +318,7 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
   fun deleteNote(id: String) {
     val audioPath = repository.state.value.notes.firstOrNull { it.id == id }?.audioPath
     repository.deleteNote(id)
+    scheduler.cancel(id)
     if (audioPath != null) {
       runCatching { File(audioPath).delete() }
     }
@@ -327,6 +339,62 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
   fun renameTag(id: String, name: String) = repository.renameTag(id, name)
 
   fun deleteTag(id: String) = repository.deleteTag(id)
+
+  // ---- reminders (S20, S22, S23) -----------------------------------------
+
+  val pendingReminders: StateFlow<List<Note>> = repository.state
+    .map { Reminders.pending(it.notes) }
+    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+  val reminderCount: StateFlow<Int> = pendingReminders
+    .map { it.size }
+    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+
+  private val _reminderStatus = MutableStateFlow<String?>(null)
+  val reminderStatus: StateFlow<String?> = _reminderStatus.asStateFlow()
+
+  fun clearReminderFeedback() {
+    _reminderStatus.value = null
+  }
+
+  /** Re-arms every pending reminder, e.g. after the exact-alarm permission is granted. */
+  fun rescheduleReminders() {
+    scheduler.rescheduleAll(repository.state.value.notes)
+  }
+
+  /** Saves the reminder and arms its alarm; null removes both. */
+  fun setReminder(noteId: String, at: Long?) {
+    repository.setReminder(noteId, at)
+    val updated = repository.state.value.notes.firstOrNull { it.id == noteId }
+    if (updated != null) scheduler.schedule(updated)
+    _reminderStatus.value = if (at == null) "Recordatorio eliminado." else "Recordatorio guardado."
+  }
+
+  fun markReminderDone(noteId: String, done: Boolean = true) {
+    repository.markReminderDone(noteId, done)
+    repository.state.value.notes.firstOrNull { it.id == noteId }?.let(scheduler::schedule)
+  }
+
+  fun snoozeReminder(noteId: String, minutes: Int) {
+    val until = System.currentTimeMillis() + minutes * 60_000L
+    repository.snoozeReminder(noteId, until)
+    repository.state.value.notes.firstOrNull { it.id == noteId }?.let(scheduler::schedule)
+    _reminderStatus.value = "Pospuesto $minutes minutos."
+  }
+
+  /** Radar shortcut: push the reminder to tomorrow at 09:00 local time. */
+  fun snoozeUntilTomorrow(noteId: String) {
+    val zone = java.time.ZoneId.systemDefault()
+    val until = java.time.LocalDate.now(zone)
+      .plusDays(1)
+      .atTime(9, 0)
+      .atZone(zone)
+      .toInstant()
+      .toEpochMilli()
+    repository.snoozeReminder(noteId, until)
+    repository.state.value.notes.firstOrNull { it.id == noteId }?.let(scheduler::schedule)
+    _reminderStatus.value = "Pospuesto para mañana a las 9:00."
+  }
 
   // ---- backup and restore (S16) -----------------------------------------
 
@@ -398,6 +466,7 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
       result
         .onSuccess { count ->
           importOrphanRecordings()
+          scheduler.rescheduleAll(repository.state.value.notes)
           _backupStatus.value = "Respaldo restaurado con $count audio(s)."
         }
         .onFailure { _backupError.value = it.message ?: "No pude restaurar el respaldo." }

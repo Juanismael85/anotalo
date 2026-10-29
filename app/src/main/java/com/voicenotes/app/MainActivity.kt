@@ -1,6 +1,7 @@
 package com.voicenotes.app
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
@@ -17,6 +18,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -29,18 +31,30 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.voicenotes.app.reminder.ReminderNotifications
 import com.voicenotes.app.ui.NotesViewModel
+import com.voicenotes.app.ui.screens.AppBottomBar
+import com.voicenotes.app.ui.screens.AppTab
+import com.voicenotes.app.ui.screens.CalendarScreen
 import com.voicenotes.app.ui.screens.HomeScreen
 import com.voicenotes.app.ui.screens.LibraryScreen
 import com.voicenotes.app.ui.screens.NoteDetailScreen
+import com.voicenotes.app.ui.screens.RadarScreen
 import com.voicenotes.app.ui.screens.RecorderScreen
 import com.voicenotes.app.ui.theme.ThemeMode
 import com.voicenotes.app.ui.theme.VoiceNotesTheme
+import kotlinx.coroutines.flow.MutableStateFlow
 
 class MainActivity : ComponentActivity() {
+
+  /** A tapped reminder notification asks for one note to be opened, also when the app is alive. */
+  private val noteToOpen = MutableStateFlow<String?>(null)
+
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     enableEdgeToEdge()
+    ReminderNotifications.ensureChannel(this)
+    noteToOpen.value = intent?.getStringExtra(EXTRA_NOTE_ID)
     setContent {
       val viewModel: NotesViewModel = viewModel()
       val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
@@ -61,25 +75,60 @@ class MainActivity : ComponentActivity() {
           modifier = Modifier.fillMaxSize(),
           color = MaterialTheme.colorScheme.background,
         ) {
-          AppRoot(viewModel)
+          AppRoot(viewModel, noteToOpen)
         }
       }
     }
+  }
+
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    setIntent(intent)
+    noteToOpen.value = intent.getStringExtra(EXTRA_NOTE_ID)
+  }
+
+  companion object {
+    const val EXTRA_NOTE_ID = "open_note_id"
+    const val ACTION_OPEN_NOTE = "com.voicenotes.app.action.OPEN_NOTE"
   }
 }
 
 private sealed interface Route {
   data object Home : Route
+  data object Radar : Route
+  data object Calendar : Route
   data object Record : Route
   data object Library : Route
   data class Detail(val noteId: String) : Route
 }
 
 @Composable
-private fun AppRoot(viewModel: NotesViewModel) {
+private fun AppRoot(
+  viewModel: NotesViewModel,
+  noteToOpen: MutableStateFlow<String?>,
+) {
   var route by remember { mutableStateOf<Route>(Route.Home) }
+  // Opening a note from the radar or the calendar returns there, not to the library.
+  var previousTab by remember { mutableStateOf<Route>(Route.Home) }
   var permissionDenied by remember { mutableStateOf(false) }
   val context = LocalContext.current
+  val reminderCount by viewModel.reminderCount.collectAsStateWithLifecycle()
+  val requestedNote by noteToOpen.collectAsStateWithLifecycle()
+
+  LaunchedEffect(requestedNote) {
+    val id = requestedNote ?: return@LaunchedEffect
+    previousTab = Route.Home
+    route = Route.Detail(id)
+    noteToOpen.value = null
+  }
+
+  val selectTab: (AppTab) -> Unit = { tab ->
+    route = when (tab) {
+      AppTab.NOTES -> Route.Home
+      AppTab.RADAR -> Route.Radar
+      AppTab.CALENDAR -> Route.Calendar
+    }
+  }
 
   val permissionLauncher = rememberLauncherForActivityResult(
     ActivityResultContracts.RequestMultiplePermissions(),
@@ -92,13 +141,16 @@ private fun AppRoot(viewModel: NotesViewModel) {
   }
 
   BackHandler(enabled = route != Route.Home) {
-    route = Route.Home
+    route = if (route is Route.Detail) previousTab else Route.Home
   }
 
   when (val current = route) {
     Route.Home -> HomeScreen(
       viewModel = viewModel,
-      onOpenNote = { route = Route.Detail(it) },
+      onOpenNote = {
+        previousTab = Route.Home
+        route = Route.Detail(it)
+      },
       onRecord = {
         if (viewModel.recording.value) {
           route = Route.Record
@@ -122,6 +174,43 @@ private fun AppRoot(viewModel: NotesViewModel) {
       },
       onOpenLibrary = { route = Route.Library },
       onOpenRecorder = { route = Route.Record },
+      bottomBar = {
+        AppBottomBar(
+          selected = AppTab.NOTES,
+          onSelect = selectTab,
+          reminderCount = reminderCount,
+        )
+      },
+    )
+
+    Route.Radar -> RadarScreen(
+      viewModel = viewModel,
+      onOpenNote = {
+        previousTab = Route.Radar
+        route = Route.Detail(it)
+      },
+      bottomBar = {
+        AppBottomBar(
+          selected = AppTab.RADAR,
+          onSelect = selectTab,
+          reminderCount = reminderCount,
+        )
+      },
+    )
+
+    Route.Calendar -> CalendarScreen(
+      viewModel = viewModel,
+      onOpenNote = {
+        previousTab = Route.Calendar
+        route = Route.Detail(it)
+      },
+      bottomBar = {
+        AppBottomBar(
+          selected = AppTab.CALENDAR,
+          onSelect = selectTab,
+          reminderCount = reminderCount,
+        )
+      },
     )
 
     Route.Record -> RecorderScreen(
@@ -144,7 +233,7 @@ private fun AppRoot(viewModel: NotesViewModel) {
     is Route.Detail -> NoteDetailScreen(
       noteId = current.noteId,
       viewModel = viewModel,
-      onBack = { route = Route.Home },
+      onBack = { route = previousTab },
     )
   }
 

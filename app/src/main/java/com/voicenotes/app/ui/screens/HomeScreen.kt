@@ -92,6 +92,7 @@ fun HomeScreen(
   onNewTextNote: () -> Unit,
   onOpenLibrary: () -> Unit,
   onOpenRecorder: () -> Unit,
+  bottomBar: @Composable () -> Unit = {},
 ) {
   val notes by viewModel.notes.collectAsStateWithLifecycle()
   val folders by viewModel.folders.collectAsStateWithLifecycle()
@@ -155,6 +156,7 @@ fun HomeScreen(
   ) {
   Scaffold(
     containerColor = Color.Transparent,
+    bottomBar = bottomBar,
     topBar = {
       LargeTopAppBar(
         navigationIcon = {

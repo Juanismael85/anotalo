@@ -1,6 +1,9 @@
 package com.voicenotes.app.ui.screens
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.media.MediaPlayer
+import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,6 +22,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.AutoAwesome
@@ -26,6 +32,7 @@ import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Mic
@@ -35,10 +42,15 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.material3.rememberTimePickerState
+import androidx.compose.material3.TimePicker
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -66,10 +78,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.voicenotes.app.export.NoteExporter
 import com.voicenotes.app.export.NoteSharing
 import com.voicenotes.app.data.Note
+import com.voicenotes.app.reminder.ReminderFormat
+import com.voicenotes.app.reminder.ReminderTime
 import com.voicenotes.app.speech.DictationController
 import com.voicenotes.app.speech.rememberDictation
 import com.voicenotes.app.ui.NotesViewModel
@@ -105,11 +120,18 @@ fun NoteDetailScreen(
   var showFolderMenu by remember { mutableStateOf(false) }
   var showShareMenu by remember { mutableStateOf(false) }
   var message by remember { mutableStateOf<String?>(null) }
+  var showDatePicker by remember { mutableStateOf(false) }
+  var showTimePicker by remember { mutableStateOf(false) }
+  var pickedDateMillis by remember { mutableStateOf<Long?>(null) }
 
   val aiRunning by viewModel.aiRunning.collectAsStateWithLifecycle()
   val aiError by viewModel.aiError.collectAsStateWithLifecycle()
   val aiStatus by viewModel.aiStatus.collectAsStateWithLifecycle()
+  val reminderStatus by viewModel.reminderStatus.collectAsStateWithLifecycle()
   val context = LocalContext.current
+  val notificationPermission = rememberLauncherForActivityResult(
+    ActivityResultContracts.RequestPermission(),
+  ) { }
   val scope = rememberCoroutineScope()
   val folderName = folders.firstOrNull { it.id == note.folderId }?.name
   val tagNames = note.tagIds.mapNotNull { id -> tags.firstOrNull { it.id == id }?.name }
@@ -129,6 +151,12 @@ fun NoteDetailScreen(
     aiStatus?.let {
       message = it
       viewModel.clearAiFeedback()
+    }
+  }
+  LaunchedEffect(reminderStatus) {
+    reminderStatus?.let {
+      message = it
+      viewModel.clearReminderFeedback()
     }
   }
 
@@ -347,6 +375,43 @@ fun NoteDetailScreen(
         }
       }
 
+      Spacer(Modifier.height(16.dp))
+      Text("Recordatorio", style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.onSurfaceVariant)
+      Spacer(Modifier.height(4.dp))
+      Row(verticalAlignment = Alignment.CenterVertically) {
+        AssistChip(
+          onClick = { showDatePicker = true },
+          label = {
+            Text(
+              note.reminderAt?.let { ReminderFormat.label(it, System.currentTimeMillis()) }
+                ?: "Agregar fecha y hora",
+            )
+          },
+          leadingIcon = { Icon(Icons.Filled.Alarm, contentDescription = null) },
+        )
+        if (note.reminderAt != null) {
+          IconButton(onClick = { viewModel.setReminder(noteId, null) }) {
+            Icon(Icons.Filled.Close, contentDescription = "Quitar recordatorio")
+          }
+        }
+      }
+      if (note.reminderAt != null) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          if (note.reminderFromAi) {
+            Text(
+              "Detectado por la IA",
+              style = MaterialTheme.typography.labelSmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.padding(start = 8.dp))
+          }
+          TextButton(onClick = { viewModel.markReminderDone(noteId, !note.reminderDone) }) {
+            Text(if (note.reminderDone) "Marcar como pendiente" else "Marcar como hecho")
+          }
+        }
+      }
+
       Spacer(Modifier.height(48.dp))
     }
   }
@@ -365,6 +430,61 @@ fun NoteDetailScreen(
       },
       dismissButton = {
         TextButton(onClick = { showDelete = false }) { Text("Cancelar") }
+      },
+    )
+  }
+
+  if (showDatePicker) {
+    val initial = note.reminderAt ?: System.currentTimeMillis()
+    val dateState = rememberDatePickerState(initialSelectedDateMillis = initial)
+    DatePickerDialog(
+      onDismissRequest = { showDatePicker = false },
+      confirmButton = {
+        TextButton(onClick = {
+          pickedDateMillis = dateState.selectedDateMillis ?: initial
+          showDatePicker = false
+          showTimePicker = true
+        }) { Text("Siguiente") }
+      },
+      dismissButton = {
+        TextButton(onClick = { showDatePicker = false }) { Text("Cancelar") }
+      },
+    ) {
+      DatePicker(state = dateState)
+    }
+  }
+
+  if (showTimePicker) {
+    val dateMillis = pickedDateMillis ?: System.currentTimeMillis()
+    val initialHourMinute = note.reminderAt
+      ?.let { ReminderTime.hourMinute(it) }
+      ?: ReminderTime.defaultHourMinute(System.currentTimeMillis())
+    val timeState = rememberTimePickerState(
+      initialHour = initialHourMinute.first,
+      initialMinute = initialHourMinute.second,
+      is24Hour = true,
+    )
+    AlertDialog(
+      onDismissRequest = { showTimePicker = false },
+      title = { Text("Hora del recordatorio") },
+      text = {
+        Box(contentAlignment = Alignment.Center) { TimePicker(state = timeState) }
+      },
+      confirmButton = {
+        TextButton(onClick = {
+          val at = ReminderTime.fromPickers(dateMillis, timeState.hour, timeState.minute)
+          viewModel.setReminder(noteId, at)
+          showTimePicker = false
+          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+          ) {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+          }
+        }) { Text("Guardar") }
+      },
+      dismissButton = {
+        TextButton(onClick = { showTimePicker = false }) { Text("Cancelar") }
       },
     )
   }
