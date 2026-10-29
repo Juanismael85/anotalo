@@ -24,7 +24,13 @@ Compatibilidad: los campos nuevos van con default dentro de `Library`/`Activity`
 - T3 (S1,S2 · UI): `ActivityEditorDialog` compartido, alta/edición de actividad en Actividades, botón "Agendar" en la tarjeta del Home con sugerencia precargada, duración y repetición visibles + aviso de solapamiento.
 - T4 (S4,S5 · dispositivo): aviso diario por `AlarmManager` (canal propio, reprogramado en boot y en cada arranque) + banda "quedaron N sin hacer · pasar a mañana".
 
+Estado: T1–T4 implementadas, 141 tests verdes (eran 102). Verificación en dispositivo pendiente: el teléfono está bloqueado con credencial y `screencap` devuelve negro.
+
 ## Log
 
 - L1 (2026-10-29): "todas me gustaron, procede, pero en el ounto 3 de igual manera va a quedar que se pueda hacer con IA verdad?" — se implementan las cinco propuestas del mensaje anterior; la IA queda como camino principal y el planificador local solo aparece cuando la IA falla.
 - Antes: bloque Actividades cerrado en `93d42aa` + `99b0d91` (filtro de notas listas y cronograma en PDF), 102 tests verdes.
+
+- L2 (2026-10-29 · avance): T1 `581b0a9`?? (ver `git log`), T2, T3 y T4 implementadas; `gradle testDebugUnitTest` → 141 tests, 0 fallos. Build instalado sobre los datos reales: `notes.json` sigue con 3 notas y 5 actividades y el `workConfig` Lun-Vie 07:00-16:00; los campos nuevos (`durationMinutes`, `repeatDays`) se leen con default sobre las actividades viejas.
+- L3 (2026-10-29 · evidencia sin pantalla): `dumpsys alarm` muestra la alarma `com.voicenotes.app.action.DAILY_AGENDA` programada para 2026-10-30 07:00 (hoy las 07:00 ya pasaron), o sea que el aviso diario quedó armado con el horario real.
+- Pendiente: verificar en pantalla el botón "Agendar" del Home, el editor de actividad (duración + repetición), la banda de sobrantes y el botón de respaldo sin IA cuando la generación falla. El teléfono quedó bloqueado y `screencap` sale negro.
