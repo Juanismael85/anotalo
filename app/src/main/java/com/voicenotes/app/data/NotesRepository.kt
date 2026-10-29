@@ -17,10 +17,20 @@ interface Storage {
 class FileStorage(private val file: File) : Storage {
   override fun read(): String? = runCatching { if (file.exists()) file.readText() else null }.getOrNull()
 
+  /**
+   * Writes through a sibling temp file so a process killed mid-write cannot leave a truncated
+   * `notes.json` behind, which would decode as an empty library.
+   */
   override fun write(text: String) {
     runCatching {
-      file.parentFile?.mkdirs()
-      file.writeText(text)
+      val directory = file.parentFile
+      directory?.mkdirs()
+      val temp = File(directory, "${file.name}.tmp")
+      temp.writeText(text)
+      if (!temp.renameTo(file)) {
+        file.writeText(text)
+        temp.delete()
+      }
     }
   }
 }
@@ -171,6 +181,59 @@ class NotesRepository(
     )
   }
 
+  // ---- reminders (S20, S25) ----------------------------------------------
+
+  /** Sets or clears the reminder of a note; clearing also drops the reminder state. */
+  fun setReminder(noteId: String, at: Long?, fromAi: Boolean = false) {
+    commit(
+      _state.value.copy(
+        notes = _state.value.notes.map { note ->
+          if (note.id != noteId) {
+            note
+          } else {
+            note.copy(
+              reminderAt = at,
+              reminderDone = false,
+              reminderFromAi = at != null && fromAi,
+              updatedAt = clock(),
+            )
+          }
+        },
+      ),
+    )
+  }
+
+  fun clearReminder(noteId: String) = setReminder(noteId, null)
+
+  /** A fulfilled reminder keeps its date on the note but stops showing up in the radar. */
+  fun markReminderDone(noteId: String, done: Boolean = true) {
+    commit(
+      _state.value.copy(
+        notes = _state.value.notes.map { note ->
+          if (note.id != noteId || note.reminderAt == null) {
+            note
+          } else {
+            note.copy(reminderDone = done, updatedAt = clock())
+          }
+        },
+      ),
+    )
+  }
+
+  fun snoozeReminder(noteId: String, until: Long) {
+    commit(
+      _state.value.copy(
+        notes = _state.value.notes.map { note ->
+          if (note.id != noteId) {
+            note
+          } else {
+            note.copy(reminderAt = until, reminderDone = false, updatedAt = clock())
+          }
+        },
+      ),
+    )
+  }
+
   // ---- folders and tags --------------------------------------------------
 
   fun createFolder(name: String): Folder {
@@ -238,8 +301,10 @@ class NotesRepository(
   }
 
   /**
-   * Applies a model result (S19): a blank title or transcript keeps what is already there,
-   * tags are matched case-insensitively and created when missing.
+   * Applies a model result (S19, S21): a blank title or transcript keeps what is already there,
+   * tags are matched case-insensitively and created when missing. The reminder is only taken when
+   * the note has none, or when the one it has was also proposed by the AI; a manual reminder and a
+   * fulfilled one are never overwritten.
    */
   fun applyAiResult(
     noteId: String,
@@ -247,6 +312,7 @@ class NotesRepository(
     transcript: String,
     summary: String,
     tagNames: List<String>,
+    reminderAt: Long? = null,
   ) {
     var tags = _state.value.tags
     val resolvedIds = tagNames.mapNotNull { raw ->
@@ -272,11 +338,17 @@ class NotesRepository(
           if (note.id != noteId) {
             note
           } else {
+            val reminderApplies = reminderAt != null &&
+              !note.reminderDone &&
+              (note.reminderAt == null || note.reminderFromAi)
             note.copy(
               title = if (title.isBlank()) note.title else title.trim(),
               transcript = if (transcript.isBlank()) note.transcript else transcript.trim(),
               summary = if (summary.isBlank()) note.summary else summary.trim(),
               tagIds = (note.tagIds + resolvedIds).distinct(),
+              reminderAt = if (reminderApplies) reminderAt else note.reminderAt,
+              reminderFromAi = if (reminderApplies) true else note.reminderFromAi,
+              reminderDone = if (reminderApplies) false else note.reminderDone,
               updatedAt = clock(),
             )
           }

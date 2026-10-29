@@ -15,6 +15,12 @@ data class Note(
   val tagIds: List<String> = emptyList(),
   val createdAt: Long = 0L,
   val updatedAt: Long = 0L,
+  /** Epoch millis of the reminder, or null when the note has none (S20). */
+  val reminderAt: Long? = null,
+  /** A reminder the user already fulfilled stays on the note but leaves the radar (S25). */
+  val reminderDone: Boolean = false,
+  /** True when the reminder came from the AI, so a manual one is never overwritten (S21). */
+  val reminderFromAi: Boolean = false,
 )
 
 @Serializable

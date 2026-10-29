@@ -54,4 +54,31 @@ class AiResponseParserTest {
     assertEquals(4, result?.tags?.size)
     assertTrue(result?.tags?.first() == "uno")
   }
+
+  // S21 — the model may also answer the reminder of the note
+  @Test
+  fun `parses the reminder the model detected`() {
+    val result = AiResponseParser.parse(
+      """{"title":"Turno","transcript":"Es el lunes a las 5.","summary":"Turno.","tags":["salud"],"reminder":"2026-10-27T17:00"}""",
+    )
+
+    assertEquals("2026-10-27T17:00", result?.reminder)
+  }
+
+  @Test
+  fun `a missing or null reminder stays null`() {
+    assertNull(
+      AiResponseParser.parse("""{"title":"Nota","transcript":"","summary":"","tags":[]}""")?.reminder,
+    )
+    assertNull(
+      AiResponseParser.parse(
+        """{"title":"Nota","transcript":"","summary":"","tags":[],"reminder":null}""",
+      )?.reminder,
+    )
+    assertNull(
+      AiResponseParser.parse(
+        """{"title":"Nota","transcript":"","summary":"","tags":[],"reminder":"null"}""",
+      )?.reminder,
+    )
+  }
 }

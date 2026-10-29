@@ -24,6 +24,8 @@ data class AiResult(
   val transcript: String,
   val summary: String,
   val tags: List<String>,
+  /** ISO-8601 date and time the note mentions, or null when the model found none (S21). */
+  val reminder: String? = null,
 )
 
 /** Thrown with a message already phrased for the user. */
@@ -68,6 +70,8 @@ object AiResponseParser {
       transcript = obj.string("transcript"),
       summary = obj.string("summary"),
       tags = tags.take(4),
+      reminder = obj.string("reminder")
+        .takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) },
     )
   }
 
@@ -195,21 +199,37 @@ class GeminiClient(
   }
 
   private fun prompt(transcript: String): String = buildString {
+    val now = java.time.Instant.now().atZone(java.time.ZoneId.systemDefault())
+    val day = DAYS[now.dayOfWeek.value - 1]
     appendLine("Sos un asistente que ordena notas de voz en español.")
     appendLine("Devolvé SOLO un objeto JSON, sin explicaciones, con estas claves exactas:")
-    appendLine("""{"title": "", "transcript": "", "summary": "", "tags": []}""")
+    appendLine("""{"title": "", "transcript": "", "summary": "", "tags": [], "reminder": null}""")
     appendLine("- title: título corto de hasta 6 palabras. Dejalo vacío si el título ya existe.")
     appendLine("- transcript: la transcripción corregida; si te paso un audio, transcribilo primero.")
     appendLine("  Corregí puntuación, mayúsculas y muletillas, sin cambiar el significado.")
     appendLine("- summary: resumen de 2 o 3 frases.")
     appendLine("- tags: entre 1 y 4 etiquetas cortas, en minúsculas.")
+    appendLine("- reminder: fecha y hora del recordatorio en formato ISO-8601 sin zona")
+    appendLine("  (por ejemplo 2026-10-27T17:00), o null si la nota no menciona ninguna fecha.")
+    appendLine("  Reglas: si hay fecha pero no hora, usá 09:00. Si hay hora pero no fecha, usá hoy")
+    appendLine("  si esa hora todavía no pasó y si no mañana.")
+    appendLine("  Resolvé expresiones relativas: mañana, el lunes, pasado mañana,")
+    appendLine("  la semana que viene, el día 3 del mes que viene.")
+    appendLine("  No inventes un recordatorio: si no hay una cita, vencimiento o tarea con momento, va null.")
     appendLine("Mantené el idioma del texto original.")
+    appendLine()
+    appendLine("Ahora es: ${now.toLocalDateTime().withSecond(0).withNano(0)} ($day).")
+    appendLine("Zona horaria: ${java.time.ZoneId.systemDefault().id}.")
     if (transcript.isNotBlank()) {
       appendLine()
       appendLine("Transcripción a corregir:")
       appendLine(transcript.trim())
     }
   }
+
+  private val DAYS = listOf(
+    "lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo",
+  )
 
   private fun mimeFor(name: String): String = when {
     name.endsWith(".m4a", true) || name.endsWith(".mp4", true) -> "audio/mp4"
