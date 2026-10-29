@@ -40,6 +40,14 @@ interface AiClient {
   ): AiResult
 
   /** Cheap round trip used by "Probar conexión" in the settings drawer. */
+  /** S5 — builds the weekly schedule for the activities section from the existing notes. */
+  suspend fun generateSchedule(
+    apiKey: String,
+    model: String,
+    config: com.voicenotes.app.data.WorkConfig,
+    sources: List<ScheduleSource>,
+  ): List<com.voicenotes.app.data.PlannedActivity>
+
   suspend fun check(apiKey: String, model: String): Result<Unit>
 
   /** Text-capable models the key can use, so the model field can list them. */
@@ -161,6 +169,39 @@ class GeminiClient(
       ?: throw AiException("La IA no devolvió texto. Probá de nuevo.")
     return AiResponseParser.parse(text)
       ?: throw AiException("No pude interpretar la respuesta de la IA.")
+  }
+
+  override suspend fun generateSchedule(
+    apiKey: String,
+    model: String,
+    config: com.voicenotes.app.data.WorkConfig,
+    sources: List<ScheduleSource>,
+  ): List<com.voicenotes.app.data.PlannedActivity> {
+    val key = apiKey.trim()
+    if (key.isEmpty()) throw AiException("Configurá tu clave de API en Ajustes para usar la IA.")
+    val body = buildJsonObject {
+      putJsonArray("contents") {
+        add(
+          buildJsonObject {
+            put(
+              "parts",
+              buildJsonArray { add(buildJsonObject { put("text", SchedulePlanner.prompt(config, sources)) }) },
+            )
+          },
+        )
+      }
+      putJsonObject("generationConfig") {
+        put("temperature", 0.2)
+        put("maxOutputTokens", 2048)
+        put("responseMimeType", "application/json")
+      }
+    }
+    val response = post("$endpoint/models/${model.trim()}:generateContent?key=$key", body.toString())
+    val text = extractText(response)
+      ?: throw AiException("La IA no devolvió texto. Probá de nuevo.")
+    val plan = SchedulePlanner.parse(text, config, sources)
+    if (plan.isEmpty()) throw AiException("La IA no produjo actividades dentro del horario configurado.")
+    return plan
   }
 
   override suspend fun check(apiKey: String, model: String): Result<Unit> {
