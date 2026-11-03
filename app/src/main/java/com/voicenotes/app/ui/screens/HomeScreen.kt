@@ -281,6 +281,20 @@ fun HomeScreen(
           }
         }
         SearchField(query = query, onQueryChange = viewModel::setQuery)
+        viewModel.loadWarning?.let { path ->
+          Surface(
+            color = MaterialTheme.colorScheme.error.copy(alpha = 0.16f),
+            shape = RoundedCornerShape(18.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+          ) {
+            Text(
+              "No se pudo leer la biblioteca guardada. Dejé una copia intacta en " +
+                path.substringAfterLast('/') + " — no la borres si querés recuperarla.",
+              style = MaterialTheme.typography.bodySmall,
+              modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            )
+          }
+        }
         batchProgress?.let { progress ->
           BatchRow(
             text = "Aplicando IA ${progress.done + 1} de ${progress.total} · ${progress.currentTitle}",

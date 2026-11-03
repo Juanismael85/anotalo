@@ -11,6 +11,9 @@ import java.io.File
 interface Storage {
   fun read(): String?
   fun write(text: String)
+
+  /** Keeps a payload the app could not decode, so no save can destroy it (S10). */
+  fun preserveCorrupt(text: String): String? = null
 }
 
 /** File-backed storage used by the app (S10). */
@@ -33,6 +36,14 @@ class FileStorage(private val file: File) : Storage {
       }
     }
   }
+
+  /** A copy next to the original, so a later save of `notes.json` cannot erase what was there. */
+  override fun preserveCorrupt(text: String): String? = runCatching {
+    val directory = file.parentFile ?: return null
+    val copy = File(directory, "${file.nameWithoutExtension}.corrupt-${System.currentTimeMillis()}.json")
+    copy.writeText(text)
+    copy.absolutePath
+  }.getOrNull()
 }
 
 class NotesRepository(
@@ -42,6 +53,9 @@ class NotesRepository(
   private val json = Json {
     ignoreUnknownKeys = true
     encodeDefaults = true
+    // A null (or a value out of range) in a field we have a default for must not reject the file:
+    // rejecting it would start the app empty and the next save would erase the library (S10).
+    coerceInputValues = true
   }
 
   private val _state = MutableStateFlow(Library())
@@ -49,14 +63,26 @@ class NotesRepository(
 
   private var sequence = 0
 
+  /** Absolute path of the copy kept when the stored file could not be decoded (S10). */
+  var loadWarning: String? = null
+    private set
+
   /** Loads persisted data; a corrupt or missing file starts empty (S10). */
   fun load() {
+    loadWarning = null
     val raw = storage.read()
-    _state.value = if (raw.isNullOrBlank()) {
-      Library()
-    } else {
-      runCatching { json.decodeFromString<Library>(raw) }.getOrDefault(Library())
+    if (raw.isNullOrBlank()) {
+      _state.value = Library()
+      return
     }
+    val decoded = runCatching { json.decodeFromString<Library>(raw) }.getOrNull()
+    if (decoded != null) {
+      _state.value = decoded
+      return
+    }
+    // Starting empty is only safe if the bytes stay recoverable: the next save rewrites the file.
+    loadWarning = storage.preserveCorrupt(raw)
+    _state.value = Library()
   }
 
   private fun commit(next: Library) {

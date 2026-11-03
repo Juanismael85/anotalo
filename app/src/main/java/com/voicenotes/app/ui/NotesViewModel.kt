@@ -48,6 +48,9 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
   // Shared with the reminder receiver so both write the same in-memory library (S23).
   private val repository = LibraryStore.get(application)
 
+  /** File name of the copy kept when the stored library could not be decoded, null when it loaded. */
+  val loadWarning: String? = repository.loadWarning
+
   private val scheduler = ReminderScheduler(application)
 
   private val _query = MutableStateFlow("")

@@ -12,9 +12,17 @@ import org.junit.Test
 
 /** In-memory storage so the data layer is testable without Android. */
 class FakeStorage(var data: String? = null) : Storage {
+  /** Last payload the repository asked us to keep aside as unreadable. */
+  var preserved: String? = null
+
   override fun read(): String? = data
   override fun write(text: String) {
     data = text
+  }
+
+  override fun preserveCorrupt(text: String): String? {
+    preserved = text
+    return "notes.corrupt-test.json"
   }
 }
 
