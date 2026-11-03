@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Themed icons (Android 13+): the system tints this silhouette with the wallpaper palette. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+  <path
+      android:pathData="M32,47 L32,61"
+      android:strokeColor="#FFFFFF"
+      android:strokeWidth="7"
+      android:strokeLineCap="round" />
+  <path
+      android:pathData="M43,41 L43,67"
+      android:strokeColor="#FFFFFF"
+      android:strokeWidth="7"
+      android:strokeLineCap="round" />
+  <path
+      android:pathData="M54,34 L54,74"
+      android:strokeColor="#FFFFFF"
+      android:strokeWidth="7"
+      android:strokeLineCap="round" />
+  <path
+      android:pathData="M65,41 L65,67"
+      android:strokeColor="#FFFFFF"
+      android:strokeWidth="7"
+      android:strokeLineCap="round" />
+  <path
+      android:pathData="M76,47 L76,61"
+      android:strokeColor="#FFFFFF"
+      android:strokeWidth="7"
+      android:strokeLineCap="round" />
+</vector>

@@ -87,9 +87,14 @@ fun SettingsDrawerContent(
     Text("Ajustes", style = MaterialTheme.typography.headlineSmall)
     Spacer(Modifier.height(4.dp))
     Text(
-      "VoiceNotes $version",
+      "Anótalo $version",
       style = MaterialTheme.typography.bodySmall,
       color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Text(
+      "Anótalo con tu voz",
+      style = MaterialTheme.typography.labelSmall,
+      color = MaterialTheme.colorScheme.primary,
     )
 
     SectionTitle("Tema")

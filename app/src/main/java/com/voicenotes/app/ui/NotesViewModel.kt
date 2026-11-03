@@ -727,7 +727,7 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
             val input = app.contentResolver.openInputStream(uri)
               ?: error("No pude leer el archivo elegido.")
             val extracted = input.use { BackupArchive.extract(it, staging) }
-              ?: error("El archivo no es un respaldo de VoiceNotes.")
+              ?: error("El archivo no es un respaldo de Anótalo.")
             if (!repository.replaceWithJson(extracted.notesJson)) {
               error("El respaldo está dañado y no se aplicó nada.")
             }

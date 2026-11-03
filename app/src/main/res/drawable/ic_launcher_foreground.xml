@@ -1,11 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Black canvas, orange voice: the wave is what the app takes in, the bars are what it keeps. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-  <group android:scaleX="2.2" android:scaleY="2.2" android:translateX="27.6" android:translateY="27.6">
-    <path
-        android:fillColor="#E9DEFF"
-        android:pathData="M12,14c1.66,0 3,-1.34 3,-3V5c0,-1.66 -1.34,-3 -3,-3S9,3.34 9,5v6c0,1.66 1.34,3 3,3zM17,11c0,2.76 -2.24,5 -5,5s-5,-2.24 -5,-5H5c0,3.53 2.61,6.43 6,6.92V21h2v-3.08c3.39,-0.49 6,-3.39 6,-6.92h-2z" />
-  </group>
+  <path
+      android:pathData="M32,47 L32,61"
+      android:strokeColor="#FF7A1A"
+      android:strokeWidth="7"
+      android:strokeLineCap="round" />
+  <path
+      android:pathData="M43,41 L43,67"
+      android:strokeColor="#FF7A1A"
+      android:strokeWidth="7"
+      android:strokeLineCap="round" />
+  <path
+      android:pathData="M54,34 L54,74"
+      android:strokeColor="#FFA04D"
+      android:strokeWidth="7"
+      android:strokeLineCap="round" />
+  <path
+      android:pathData="M65,41 L65,67"
+      android:strokeColor="#FF7A1A"
+      android:strokeWidth="7"
+      android:strokeLineCap="round" />
+  <path
+      android:pathData="M76,47 L76,61"
+      android:strokeColor="#FF7A1A"
+      android:strokeWidth="7"
+      android:strokeLineCap="round" />
 </vector>
