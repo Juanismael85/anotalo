@@ -349,6 +349,7 @@ class NotesRepository(
               reminderAt = if (reminderApplies) reminderAt else note.reminderAt,
               reminderFromAi = if (reminderApplies) true else note.reminderFromAi,
               reminderDone = if (reminderApplies) false else note.reminderDone,
+              aiAppliedAt = clock(),
               updatedAt = clock(),
             )
           }

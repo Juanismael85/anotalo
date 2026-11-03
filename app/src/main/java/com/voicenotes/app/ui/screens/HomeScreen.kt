@@ -21,6 +21,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
@@ -33,8 +34,11 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -87,6 +91,7 @@ import com.voicenotes.app.ui.theme.ThemeMode
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -112,12 +117,18 @@ fun HomeScreen(
   val drawerState = rememberDrawerState(DrawerValue.Closed)
   val scope = rememberCoroutineScope()
   val context = LocalContext.current
+  val batchProgress by viewModel.batchProgress.collectAsStateWithLifecycle()
+  val aiPending by viewModel.aiPendingCount.collectAsStateWithLifecycle()
+  val aiConfigured by viewModel.aiConfigured.collectAsStateWithLifecycle()
+  val aiStatus by viewModel.aiStatus.collectAsStateWithLifecycle()
+  val aiError by viewModel.aiError.collectAsStateWithLifecycle()
   val backupStatus by viewModel.backupStatus.collectAsStateWithLifecycle()
   val backupError by viewModel.backupError.collectAsStateWithLifecycle()
   var backupMessage by remember { mutableStateOf<String?>(null) }
   var doneFilter by remember { mutableStateOf(DoneFilter.ALL) }
   var scheduling by remember { mutableStateOf<ActivityDraft?>(null) }
   var pendingRestore by remember { mutableStateOf<android.net.Uri?>(null) }
+  var batchConfirm by remember { mutableStateOf(false) }
 
   val exportLauncher = rememberLauncherForActivityResult(
     ActivityResultContracts.CreateDocument("application/zip"),
@@ -130,6 +141,12 @@ fun HomeScreen(
     scope.launch { drawerState.close() }
   }
 
+  LaunchedEffect(aiStatus, aiError) {
+    if (aiStatus != null || aiError != null) {
+      delay(8_000)
+      viewModel.clearAiFeedback()
+    }
+  }
   LaunchedEffect(backupStatus) {
     backupStatus?.let {
       backupMessage = it
@@ -182,6 +199,21 @@ fun HomeScreen(
           }
         },
         actions = {
+          BadgedBox(
+            badge = {
+              if (aiPending > 0) Badge { Text("$aiPending") }
+            },
+          ) {
+            IconButton(
+              onClick = { batchConfirm = true },
+              enabled = aiConfigured && aiPending > 0 && batchProgress == null,
+            ) {
+              Icon(
+                Icons.Filled.AutoAwesome,
+                contentDescription = "Aplicar IA a las notas que faltan",
+              )
+            }
+          }
           Box {
             IconButton(onClick = { themeMenuOpen = true }) {
               Icon(Icons.Filled.Palette, contentDescription = "Cambiar tema")
@@ -249,6 +281,16 @@ fun HomeScreen(
           }
         }
         SearchField(query = query, onQueryChange = viewModel::setQuery)
+        batchProgress?.let { progress ->
+          BatchRow(
+            text = "Aplicando IA ${progress.done + 1} de ${progress.total} · ${progress.currentTitle}",
+            onCancel = viewModel::cancelAiBatch,
+          )
+        } ?: aiStatus?.let { message ->
+          BatchRow(text = message, onCancel = null)
+        } ?: aiError?.let { message ->
+          BatchRow(text = message, onCancel = null, isError = true)
+        }
         FilterRow(
           folders = folders,
           tags = tags,
@@ -300,6 +342,30 @@ fun HomeScreen(
       }
     }
   }
+  }
+
+  if (batchConfirm) {
+    AlertDialog(
+      onDismissRequest = { batchConfirm = false },
+      title = { Text("Aplicar IA a $aiPending nota${if (aiPending == 1) "" else "s"}") },
+      text = {
+        Text(
+          "Se procesan solo las notas que todavía no tienen IA. " +
+            "Las que ya la tienen no se tocan.",
+        )
+      },
+      confirmButton = {
+        TextButton(
+          onClick = {
+            batchConfirm = false
+            viewModel.runAiBatch()
+          },
+        ) { Text("Aplicar") }
+      },
+      dismissButton = {
+        TextButton(onClick = { batchConfirm = false }) { Text("Cancelar") }
+      },
+    )
   }
 
   scheduling?.let { draft ->
@@ -566,3 +632,28 @@ private fun DoneFilterRow(
 }
 
 private fun Modifier.noop(): Modifier = this
+
+/** The line that shows the batch while it runs, or what the last run left behind. */
+@Composable
+private fun BatchRow(text: String, onCancel: (() -> Unit)?, isError: Boolean = false) {
+  Row(
+    verticalAlignment = Alignment.CenterVertically,
+    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
+  ) {
+    if (onCancel != null) {
+      CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+      Spacer(Modifier.width(10.dp))
+    }
+    Text(
+      text = text,
+      style = MaterialTheme.typography.bodySmall,
+      color = if (isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+      modifier = Modifier.weight(1f),
+      maxLines = 2,
+      overflow = TextOverflow.Ellipsis,
+    )
+    onCancel?.let { cancel ->
+      TextButton(onClick = cancel) { Text("Cancelar") }
+    }
+  }
+}

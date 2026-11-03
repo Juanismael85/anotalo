@@ -16,6 +16,8 @@ import com.voicenotes.app.ai.GeminiClient
 import com.voicenotes.app.audio.RecordingService
 import com.voicenotes.app.audio.RecordingSession
 import com.voicenotes.app.data.BackupArchive
+import com.voicenotes.app.data.AiBatch
+import com.voicenotes.app.data.AiBatchProgress
 import com.voicenotes.app.data.Folder
 import com.voicenotes.app.data.Note
 import com.voicenotes.app.data.LibraryStore
@@ -84,6 +86,17 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
 
   private val _aiError = MutableStateFlow<String?>(null)
   val aiError: StateFlow<String?> = _aiError.asStateFlow()
+
+  private val _batchProgress = MutableStateFlow<AiBatchProgress?>(null)
+  val batchProgress: StateFlow<AiBatchProgress?> = _batchProgress.asStateFlow()
+
+  @Volatile
+  private var batchCancelled = false
+
+  /** How many notes still need the AI: the badge on the batch button. */
+  val aiPendingCount: StateFlow<Int> = repository.state
+    .map { AiBatch.pending(it.notes).size }
+    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
 
   val aiConfigured: StateFlow<Boolean> = _apiKey
     .map { it.isNotBlank() }
@@ -208,6 +221,10 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
    */
   fun runAi(noteId: String) {
     if (_aiRunning.value) return
+    if (_batchProgress.value != null) {
+      _aiError.value = "Esperá a que termine el lote de IA."
+      return
+    }
     val note = repository.state.value.notes.firstOrNull { it.id == noteId }
     if (note == null) {
       _aiError.value = "La nota ya no existe."
@@ -223,46 +240,115 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
     _aiStatus.value = null
     _aiError.value = null
     viewModelScope.launch {
-      val audio = note.audioPath?.let { File(it) }?.takeIf { it.exists() }
-      val hasTranscript = note.transcript.isNotBlank()
-      val audioToSend = if (audio != null && !hasTranscript) audio else null
-      val outcome = runCatching {
-        withContext(Dispatchers.IO) {
-          aiClient.process(
-            apiKey = key,
-            model = _aiModel.value,
-            audio = audioToSend,
-            transcript = note.transcript,
-          )
-        }
-      }
+      val outcome = processNote(note, key)
       _aiRunning.value = false
       outcome
-        .onSuccess { result ->
-          val reminderAt = ReminderTime.parse(result.reminder, System.currentTimeMillis())
-          repository.applyAiResult(
-            noteId = note.id,
-            title = if (note.title.isBlank()) result.title else "",
-            transcript = result.transcript,
-            summary = result.summary,
-            tagNames = result.tags,
-            reminderAt = reminderAt,
-          )
-          repository.state.value.notes.firstOrNull { it.id == note.id }?.let(scheduler::schedule)
+        .onSuccess { reminderAt ->
           _aiStatus.value = if (reminderAt != null) {
             "La IA actualizó la nota y agregó el recordatorio."
           } else {
             "La IA actualizó la nota."
           }
         }
-        .onFailure { error ->
-          _aiError.value = when (error) {
-            is AiException -> error.message ?: "No pude procesar la nota."
-            else -> error.message?.let { "No pude procesar la nota: $it" }
-              ?: "No pude procesar la nota."
+        .onFailure { error -> _aiError.value = aiFailureMessage(error) }
+    }
+  }
+
+  /**
+   * Batch AI — runs the very same per-note path over every note the AI never touched, and skips
+   * the ones it already did. One shared function is what keeps both buttons from drifting apart.
+   */
+  fun runAiBatch() {
+    if (_batchProgress.value != null) return
+    if (_aiRunning.value) {
+      _aiError.value = "Esperá a que termine la nota en curso."
+      return
+    }
+    val key = _apiKey.value.trim()
+    if (key.isEmpty()) {
+      _aiError.value = "Configurá tu clave de API en Ajustes para usar la IA."
+      return
+    }
+    val pending = AiBatch.pending(repository.state.value.notes)
+    if (pending.isEmpty()) {
+      _aiStatus.value = "No hay notas pendientes: la IA ya se aplicó a todas."
+      return
+    }
+
+    batchCancelled = false
+    _aiStatus.value = null
+    _aiError.value = null
+    viewModelScope.launch {
+      var done = 0
+      var failed = 0
+      var stopReason: String? = null
+      for (note in pending) {
+        if (batchCancelled) break
+        _batchProgress.value = AiBatchProgress(done, pending.size, displayTitle(note))
+        val outcome = processNote(note, key)
+        val error = outcome.exceptionOrNull()
+        if (error == null) {
+          done++
+        } else {
+          failed++
+          if (AiBatch.stopsBatch(error.message)) {
+            stopReason = error.message
+            break
           }
         }
+      }
+      val cancelled = batchCancelled
+      batchCancelled = false
+      _batchProgress.value = null
+      _aiStatus.value = buildString {
+        if (cancelled) {
+          append("Lote cancelado: $done de ${pending.size} listas.")
+        } else {
+          append("IA aplicada a $done de ${pending.size} nota${if (pending.size == 1) "" else "s"}.")
+        }
+        if (failed > 0 && !cancelled) append(" $failed con error.")
+        stopReason?.let { append(" Se detuvo: $it") }
+      }
     }
+  }
+
+  /** Stops after the note in flight: it never leaves a half-written note behind. */
+  fun cancelAiBatch() {
+    batchCancelled = true
+  }
+
+  private suspend fun processNote(note: Note, key: String): Result<Long?> {
+    val audio = note.audioPath?.let { File(it) }?.takeIf { it.exists() }
+    val audioToSend = if (audio != null && note.transcript.isBlank()) audio else null
+    // A written note keeps its text in body; sending only the transcript would ask the model
+    // about an empty note.
+    val text = note.transcript.ifBlank { note.body }
+    return runCatching {
+      val result = withContext(Dispatchers.IO) {
+        aiClient.process(
+          apiKey = key,
+          model = _aiModel.value,
+          audio = audioToSend,
+          transcript = text,
+        )
+      }
+      val reminderAt = ReminderTime.parse(result.reminder, System.currentTimeMillis())
+      repository.applyAiResult(
+        noteId = note.id,
+        title = if (note.title.isBlank()) result.title else "",
+        transcript = result.transcript,
+        summary = result.summary,
+        tagNames = result.tags,
+        reminderAt = reminderAt,
+      )
+      repository.state.value.notes.firstOrNull { it.id == note.id }?.let(scheduler::schedule)
+      reminderAt
+    }
+  }
+
+  private fun aiFailureMessage(error: Throwable): String = when (error) {
+    is AiException -> error.message ?: "No pude procesar la nota."
+    else -> error.message?.let { "No pude procesar la nota: $it" } ?: "No pude procesar la nota."
   }
 
   val notes: StateFlow<List<Note>> =

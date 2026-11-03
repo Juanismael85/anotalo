@@ -21,6 +21,8 @@ data class Note(
   val reminderDone: Boolean = false,
   /** True when the reminder came from the AI, so a manual one is never overwritten (S21). */
   val reminderFromAi: Boolean = false,
+  /** When the AI last processed this note; null means it never ran on it (batch AI). */
+  val aiAppliedAt: Long? = null,
   /** A note the user marked as finished on the home screen (S8 of activities). */
   val done: Boolean = false,
   val doneAt: Long? = null,
