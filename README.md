@@ -64,4 +64,4 @@ Versión 1.0. La app se usa a diario y se prueba en dispositivo antes de cada pu
 
 ## Licencia
 
-Sin licencia definida por ahora: el código es público para leerlo y compilarlo, pero no para redistribuirlo comercialmente. Si necesitás otro esquema, abrí un issue.
+[MIT](LICENSE) © 2026 Juanismael85. Podés usar, modificar y redistribuir el código, incluso comercialmente, conservando el aviso de copyright.
