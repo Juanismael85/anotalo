@@ -434,19 +434,39 @@ class NotesRepository(
     noteId: String? = null,
     durationMinutes: Int = ScheduleRules.DEFAULT_DURATION,
     repeatDays: List<Int> = emptyList(),
-  ): Activity {
-    val activity = Activity(
-      id = newId("act"),
-      title = title.trim(),
-      dayOfWeek = dayOfWeek.coerceIn(1, 7),
-      startMinutes = startMinutes.coerceIn(0, 1439),
-      source = Activity.SOURCE_MANUAL,
-      noteId = noteId,
-      durationMinutes = durationMinutes.coerceIn(ScheduleRules.MIN_DURATION, ScheduleRules.MAX_DURATION),
-      repeatDays = repeatDays.filter { it in 1..7 }.distinct().sorted(),
-    )
-    commit(_state.value.copy(activities = _state.value.activities + activity))
-    return activity
+  ): Activity = createActivities(
+    listOf(
+      NewActivity(
+        title = title,
+        dayOfWeek = dayOfWeek,
+        startMinutes = startMinutes,
+        durationMinutes = durationMinutes,
+        repeatDays = repeatDays,
+        noteId = noteId,
+      ),
+    ),
+  ).first()
+
+  /**
+   * S1 (agenda) — one note can hold several tasks, and they belong to the same save: N activities
+   * in a single write, so the file is not rewritten N times and the UI updates once.
+   */
+  fun createActivities(specs: List<NewActivity>): List<Activity> {
+    if (specs.isEmpty()) return emptyList()
+    val created = specs.map { spec ->
+      Activity(
+        id = newId("act"),
+        title = spec.title.trim(),
+        dayOfWeek = spec.dayOfWeek.coerceIn(1, 7),
+        startMinutes = spec.startMinutes.coerceIn(0, 1439),
+        source = Activity.SOURCE_MANUAL,
+        noteId = spec.noteId,
+        durationMinutes = spec.durationMinutes.coerceIn(ScheduleRules.MIN_DURATION, ScheduleRules.MAX_DURATION),
+        repeatDays = spec.repeatDays.filter { it in 1..7 }.distinct().sorted(),
+      )
+    }
+    commit(_state.value.copy(activities = _state.value.activities + created))
+    return created
   }
 
   /** S2 (agenda) — the same slot with a new day, hour, length or repeat set. */

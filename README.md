@@ -8,7 +8,7 @@ Android 8.0 o superior · 2 MB · sin cuentas ni servidores propios.
 
 **[Descargar el APK](../../releases/latest)** desde la sección *Releases* de este repositorio.
 
-1. Abrí el archivo `Anotalo-1.0.apk` en el teléfono.
+1. Abrí el archivo `Anotalo-1.1.apk` en el teléfono.
 2. La primera vez Android pide permitir **"instalar apps de origen desconocido"** para la app desde la que lo abrís (Archivos, Chrome, WhatsApp). Se activa una vez y listo.
 3. Instalar y abrir.
 
@@ -18,7 +18,7 @@ Las versiones siguientes firmadas con la misma clave se actualizan encima **sin 
 
 - **Dictado**: hablás y el texto aparece en la nota; después lo editás como cualquier texto.
 - **Notas**: etiquetas, carpetas, búsqueda, audio adjunto de cada dictado.
-- **Agenda**: cada nota puede convertirse en una actividad con día, hora, duración y repetición. Aviso diario a la hora de entrada, aviso de solapamientos y cierre del día con lo que quedó sin hacer.
+- **Agenda**: cada nota puede convertirse en una o varias actividades con día, hora, duración y repetición. Si la nota menciona varias tareas, la app las propone todas juntas y elegís cuáles van al cronograma. Aviso diario a la hora de entrada, aviso de solapamientos y cierre del día con lo que quedó sin hacer.
 - **IA opcional (Gemini)**: resumen, tareas y planificación del día. Se configura con una clave de API propia.
 
 ## La IA es opcional
@@ -39,7 +39,7 @@ Requisitos: JDK 17, Android SDK 36, Gradle.
 
 ```bash
 gradle assembleDebug          # APK de desarrollo
-gradle testDebugUnitTest      # 154 tests JVM
+gradle testDebugUnitTest      # 164 tests JVM
 gradle assembleRelease        # APK firmado y reducido con R8
 ```
 

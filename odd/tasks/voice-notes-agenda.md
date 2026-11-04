@@ -12,6 +12,9 @@ Branch: `feature/agenda-inteligente`. Tests: `gradle testDebugUnitTest` (JVM).
 - **S4** (aviso del día): "Un aviso a las 7:00 con las actividades de hoy y una acción para tildar la primera." → la hora del aviso es el inicio de `WorkConfig` (07:00 es el default de la config actual).
 - **S5** (cierre del día): "Al final del día, 'quedaron 2 sin hacer: ¿reprogramo para mañana?'. Es lo que hace que un cronograma se use más de tres días."
 - **S6** (autorización): "todas me gustaron, procede" — las cinco entran en este bloque.
+- **S7** (varias actividades por nota): "una nota con varias actividades" debe proponer **varias** actividades, todas vinculadas a la nota. Pedido del usuario (verbatim): "si procede mejoraloby que quede perfecto y moderno" — además del comportamiento, la pantalla de agendar tiene que verse actual.
+  - Criterios: una nota con N tareas produce N propuestas; cada una hereda día y hora de su propia oración y, si no tiene, del resto de la nota; nunca se solapan (la siguiente empieza cuando termina la anterior); lo que no entra antes del cierre pasa al siguiente día laboral; el usuario destilda, edita y confirma; todo el lote se guarda en **una** escritura y queda con `noteId`.
+  - Supuesto: el título de la nota sigue siendo candidato cuando el cuerpo no tiene nada accionable (comportamiento previo).
 
 Supuestos anotados: el aviso del día se arma a la hora de entrada configurada; "reprogramar" mueve las actividades no repetidas al siguiente día laboral; la repetición semanal es un conjunto de días extra sobre el día ancla; la duración por defecto es 60 minutos.
 
@@ -23,8 +26,9 @@ Compatibilidad: los campos nuevos van con default dentro de `Library`/`Activity`
 - T2 (S1,S3 · lógica pura): `TaskText` (oraciones accionables, día y hora en lenguaje natural), `LocalSchedulePlanner` (reparto determinista), `TaskExtractor` (sugerencia para una nota) + tests.
 - T3 (S1,S2 · UI): `ActivityEditorDialog` compartido, alta/edición de actividad en Actividades, botón "Agendar" en la tarjeta del Home con sugerencia precargada, duración y repetición visibles + aviso de solapamiento.
 - T4 (S4,S5 · dispositivo): aviso diario por `AlarmManager` (canal propio, reprogramado en boot y en cada arranque) + banda "quedaron N sin hacer · pasar a mañana".
+- T5 (S7 · lote desde una nota): `TaskText.taskSentences` (oración original), sustantivos de tarea al inicio y corte por conjunción "y"; `TaskExtractor.suggestAll` (una propuesta por tarea, sin solapamiento, desborde al día siguiente); `NotesRepository.createActivities` (lote en una escritura); diálogo `ScheduleSuggestionsDialog` con checkboxes y edición por fila; cableado del Home + tests.
 
-Estado: T1–T4 implementadas, 141 tests verdes (eran 102). Verificación en dispositivo pendiente: el teléfono está bloqueado con credencial y `screencap` devuelve negro.
+Estado: T1–T5 implementadas, 164 tests verdes (eran 102). Verificación en dispositivo pendiente: el teléfono está bloqueado con credencial y `screencap` devuelve negro.
 
 ## Log
 
@@ -51,3 +55,13 @@ Estado: T1–T4 implementadas, 141 tests verdes (eran 102). Verificación en dis
   - Release (`bd879cc`): keystore propio en `keystore/` (ignorado por git), `assembleRelease` con R8 + recursos reducidos → 2,03 MB firmado, instalado y probado en el teléfono; copia en `/sdcard/Download/Anotalo-1.0.apk` (md5 `f7e686a3737cca92e1cda2bdb87dae80`). El teléfono quedó con el build debug porque el release no permite `run-as` y hacía falta restaurar datos; los dos tienen el mismo código.
 
 - L7 (2026-11-03 · publicación): repo público `https://github.com/Juanismael85/anotalo` con el código en `master` (21 commits + README de instalación, privacidad y compilación) y Release **v1.0** con el asset `Anotalo-1.0.apk` (2.037.046 bytes, sha256 `5c9ac475bada22289a12a5e982e2cc55cddaa727d4b0ee600b15620e052b4f7c`). Descarga anónima verificada: `https://github.com/Juanismael85/anotalo/releases/download/v1.0/Anotalo-1.0.apk` responde 200 y el sha256 coincide con el APK local. Se revisó el árbol y **todo el historial** antes de publicar: sin claves ni secretos (solo 3,3 MB). Autenticación: el prompt TTY de `gh auth login` se bloqueaba en la consulta OSC 11 del terminal, así que se usó el flujo de dispositivo OAuth directo (scope `public_repo`) y el token por `GH_TOKEN`.
+
+- L8 (2026-11-04 · varias actividades por nota): pedido "si procede mejoraloby que quede perfecto y moderno".
+  - Rojo: `MultiActivitySchedulingTest` (10 tests) escrito antes del código; falló por compilación porque `TaskText.taskSentences`, `TaskExtractor.suggestAll` y `NotesRepository.createActivities` no existían.
+  - Lectura (`TaskText`): `TASK_NOUNS` para que "Reunión con el proveedor" cuente como tarea sin verbo, exigido **al inicio** de la oración (así "estuvimos hablando del presupuesto" no se confunde); corte por conjunción "y" cuando lo que sigue es accionable por sí solo ("…el martes y hay que revisar el stock" → dos tareas), que es lo que evita quedarse con una sola actividad cuando el dictado no trae puntos.
+  - Reparto (`TaskExtractor.suggestAll`): día/hora de cada oración mandan sobre el resto de la nota; la siguiente tarea arranca al terminar la anterior; si cruza la hora de cierre pasa al siguiente día laboral. `suggest` sigue existiendo para el caso de una sola.
+  - Persistencia: `NewActivity` + `createActivities(specs)` escriben **una** vez por lote; `createActivity` delega ahí (mismo comportamiento que antes).
+  - UI: `ScheduleSuggestionsDialog` (esquinas 28 dp, tarjetas de 18 dp, checkbox, día · hora · duración, edición por fila con el editor existente, botón "Agendar N" deshabilitado si no queda ninguna, lista con tope de 380 dp para que los botones nunca queden fuera de pantalla).
+  - Verde: `gradle testDebugUnitTest` → **164 tests, 0 fallos**; `assembleRelease` → 2.053.426 bytes, `versionCode 2`, `versionName 1.1`.
+  - Incidente honesto: el teléfono tenía instalado un build firmado con **otra** clave (cert `CN=Android Release`, SHA-256 `874F23B2…`), así que `install -r` rechazó tanto el debug como el release. Se hizo `pm uninstall -k` para conservar datos y el instalador MIUI pidió confirmación en pantalla ("Instalar vía USB"); en ese momento el teléfono estaba en uso y los taps de confirmación cayeron sobre WhatsApp abierto. **La app quedó desinstalada** hasta que el usuario confirme la instalación. Los datos de la app estaban vacíos (`notes: []`) al momento del respaldo, así que no había notas que perder; la clave de Gemini queda en las preferencias conservadas por `-k`.
+  - La clave del APK publicado (v1.0) sí coincide con `keystore/anotalo-release.jks` (SHA-256 `524B4F41…`), verificado con `apksigner verify --print-certs`: las actualizaciones desde GitHub se instalan encima sin perder datos.

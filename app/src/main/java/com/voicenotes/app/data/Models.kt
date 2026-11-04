@@ -78,6 +78,19 @@ data class PlannedActivity(
   val noteId: String? = null,
 )
 
+/**
+ * S1 — one activity about to be created. A note can produce several of these at once, which is why
+ * the repository writes them in a batch: one save for the whole note instead of one per slot.
+ */
+data class NewActivity(
+  val title: String,
+  val dayOfWeek: Int,
+  val startMinutes: Int,
+  val durationMinutes: Int = ScheduleRules.DEFAULT_DURATION,
+  val repeatDays: List<Int> = emptyList(),
+  val noteId: String? = null,
+)
+
 @Serializable
 data class ChecklistItem(
   val id: String,

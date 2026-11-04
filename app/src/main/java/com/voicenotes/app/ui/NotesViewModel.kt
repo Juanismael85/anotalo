@@ -20,6 +20,7 @@ import com.voicenotes.app.data.AiBatch
 import com.voicenotes.app.data.AiBatchProgress
 import com.voicenotes.app.data.Folder
 import com.voicenotes.app.data.Note
+import com.voicenotes.app.data.NewActivity
 import com.voicenotes.app.data.LibraryStore
 import com.voicenotes.app.data.Tag
 import com.voicenotes.app.reminder.DailyAgendaScheduler
@@ -515,23 +516,53 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
     _fallbackOffered.value = false
   }
 
-  /** S1 (agenda) — the draft the "Agendar" button shows for one note; nothing is saved yet. */
-  fun suggestActivity(noteId: String): com.voicenotes.app.ui.components.ActivityDraft? {
-    val note = repository.state.value.notes.firstOrNull { it.id == noteId } ?: return null
-    val suggestion = TaskExtractor.suggest(
+  /**
+   * S1 (agenda) — the drafts the "Agendar" button shows for one note: one per task it mentions.
+   * Nothing is saved here; the dialog lets the user pick which ones go to the schedule.
+   */
+  fun suggestActivities(noteId: String): List<com.voicenotes.app.ui.components.ActivityDraft> {
+    val note = repository.state.value.notes.firstOrNull { it.id == noteId } ?: return emptyList()
+    return TaskExtractor.suggestAll(
       title = displayTitle(note),
       summary = note.summary,
       transcript = note.transcript.ifBlank { note.body },
       config = repository.state.value.workConfig,
       today = LocalDate.now().dayOfWeek.value,
+    ).map { suggestion ->
+      com.voicenotes.app.ui.components.ActivityDraft(
+        title = suggestion.title,
+        dayOfWeek = suggestion.dayOfWeek,
+        startMinutes = suggestion.startMinutes,
+        durationMinutes = suggestion.durationMinutes,
+        noteId = note.id,
+      )
+    }
+  }
+
+  fun suggestActivity(noteId: String): com.voicenotes.app.ui.components.ActivityDraft? =
+    suggestActivities(noteId).firstOrNull()
+
+  /** S1 (agenda) — every chosen draft becomes a slot, all of them with a single save. */
+  fun saveActivities(drafts: List<com.voicenotes.app.ui.components.ActivityDraft>) {
+    val clean = drafts.filter { it.title.isNotBlank() && it.id == null }
+    if (clean.isEmpty()) return
+    repository.createActivities(
+      clean.map { draft ->
+        NewActivity(
+          title = draft.title,
+          dayOfWeek = draft.dayOfWeek,
+          startMinutes = draft.startMinutes,
+          durationMinutes = draft.durationMinutes,
+          repeatDays = draft.repeatDays,
+          noteId = draft.noteId,
+        )
+      },
     )
-    return com.voicenotes.app.ui.components.ActivityDraft(
-      title = suggestion.title,
-      dayOfWeek = suggestion.dayOfWeek,
-      startMinutes = suggestion.startMinutes,
-      durationMinutes = suggestion.durationMinutes,
-      noteId = note.id,
-    )
+    _scheduleStatus.value = if (clean.size == 1) {
+      "Actividad agregada al cronograma."
+    } else {
+      "${clean.size} actividades agregadas al cronograma."
+    }
   }
 
   fun saveActivity(draft: com.voicenotes.app.ui.components.ActivityDraft) {

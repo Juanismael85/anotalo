@@ -1,15 +1,33 @@
 package com.voicenotes.app.ui.components
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.EventAvailable
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
@@ -18,8 +36,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.voicenotes.app.data.ScheduleRules
 
 /** What the editor shows and returns: an activity before it exists, or one being edited. */
@@ -164,4 +187,167 @@ fun ActivityEditorDialog(
     },
     dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
   )
+}
+
+/** "Mar", "Mié": the three letters the schedule uses in every row. */
+fun shortDayName(dayOfWeek: Int): String =
+  dayNames.getOrElse(dayOfWeek - 1) { dayNames[0] }
+    .replaceFirstChar { it.uppercase() }
+    .take(3)
+
+/**
+ * S1 of the agenda block — a note holds several tasks, so "Agendar" opens this list instead of a
+ * single form: every task arrives ticked, each one can be edited, and only the ticked ones are
+ * written. The whole batch is saved at once, linked to the note it came from.
+ */
+@Composable
+fun ScheduleSuggestionsDialog(
+  drafts: List<ActivityDraft>,
+  onDismiss: () -> Unit,
+  onSave: (List<ActivityDraft>) -> Unit,
+) {
+  var rows by remember(drafts) { mutableStateOf(drafts) }
+  var selected by remember(drafts) { mutableStateOf(drafts.indices.toSet()) }
+  var editing by remember { mutableStateOf<Int?>(null) }
+
+  Dialog(
+    onDismissRequest = onDismiss,
+    properties = DialogProperties(usePlatformDefaultWidth = false),
+  ) {
+    Surface(
+      modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+      shape = RoundedCornerShape(28.dp),
+      color = MaterialTheme.colorScheme.surfaceContainerHigh,
+      tonalElevation = 6.dp,
+    ) {
+      Column(Modifier.padding(20.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          Box(
+            modifier = Modifier
+              .size(44.dp)
+              .background(
+                MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
+                RoundedCornerShape(14.dp),
+              ),
+            contentAlignment = Alignment.Center,
+          ) {
+            Icon(
+              imageVector = Icons.Outlined.EventAvailable,
+              contentDescription = null,
+              tint = MaterialTheme.colorScheme.primary,
+            )
+          }
+          Spacer(Modifier.width(14.dp))
+          Column {
+            Text(
+              text = "¿Agendar esta nota?",
+              style = MaterialTheme.typography.titleLarge,
+              fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+              text = if (rows.size == 1) {
+                "Encontré 1 tarea. Decidí si va al cronograma."
+              } else {
+                "Encontré ${rows.size} tareas. Elegí cuáles van al cronograma."
+              },
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+          }
+        }
+
+        Spacer(Modifier.height(18.dp))
+
+        Column(
+          modifier = Modifier.heightIn(max = 380.dp).verticalScroll(rememberScrollState()),
+          verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+          rows.forEachIndexed { index, draft ->
+            val isSelected = index in selected
+            Surface(
+              modifier = Modifier
+                .fillMaxWidth()
+                .clickable {
+                  selected = if (isSelected) selected - index else selected + index
+                },
+              shape = RoundedCornerShape(18.dp),
+              color = if (isSelected) {
+                MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
+              } else {
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.30f)
+              },
+              border = BorderStroke(
+                1.dp,
+                if (isSelected) {
+                  MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
+                } else {
+                  MaterialTheme.colorScheme.outlineVariant
+                },
+              ),
+            ) {
+              Row(
+                modifier = Modifier.fillMaxWidth().padding(start = 6.dp, end = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+              ) {
+                Checkbox(checked = isSelected, onCheckedChange = null)
+                Column(Modifier.weight(1f).padding(vertical = 10.dp)) {
+                  Text(
+                    text = draft.title,
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                  )
+                  Text(
+                    text = "${shortDayName(draft.dayOfWeek)} · " +
+                      "${clockText(draft.startMinutes)} · ${draft.durationMinutes} min",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                  )
+                }
+                IconButton(onClick = { editing = index }) {
+                  Icon(
+                    imageVector = Icons.Outlined.Edit,
+                    contentDescription = "Editar ${draft.title}",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                  )
+                }
+              }
+            }
+          }
+        }
+
+        Spacer(Modifier.height(14.dp))
+
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.End,
+          verticalAlignment = Alignment.CenterVertically,
+        ) {
+          TextButton(onClick = onDismiss) { Text("Cancelar") }
+          Spacer(Modifier.width(8.dp))
+          Button(
+            onClick = { onSave(rows.filterIndexed { index, _ -> index in selected }) },
+            enabled = selected.isNotEmpty(),
+            shape = RoundedCornerShape(14.dp),
+          ) {
+            Text(
+              if (selected.size == 1) "Agendar 1" else "Agendar ${selected.size}",
+            )
+          }
+        }
+      }
+    }
+  }
+
+  editing?.let { index ->
+    ActivityEditorDialog(
+      heading = "Editar actividad",
+      draft = rows[index],
+      onDismiss = { editing = null },
+      onSave = { saved ->
+        rows = rows.toMutableList().also { it[index] = saved }
+        editing = null
+      },
+    )
+  }
 }

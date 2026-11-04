@@ -15,9 +15,13 @@ class FakeStorage(var data: String? = null) : Storage {
   /** Last payload the repository asked us to keep aside as unreadable. */
   var preserved: String? = null
 
+  /** How many times the repository asked to persist; a batch must be one write. */
+  var writes: Int = 0
+
   override fun read(): String? = data
   override fun write(text: String) {
     data = text
+    writes++
   }
 
   override fun preserveCorrupt(text: String): String? {

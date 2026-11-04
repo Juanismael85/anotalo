@@ -23,6 +23,17 @@ object TaskText {
     "se debe", "falta", "pendiente",
   )
 
+  /**
+   * Nouns that name a task on their own: "Reunión con el proveedor el martes" asks for something
+   * even without a verb. Without this, a dictation that starts with the task name would be dropped.
+   */
+  private val TASK_NOUNS = listOf(
+    "reunión", "reunion", "entrega", "pago", "llamada", "compra", "informe", "visita",
+    "mantenimiento", "limpieza", "cita", "auditoría", "auditoria", "capacitación", "capacitacion",
+    "pedido", "traslado", "control", "inspección", "inspeccion", "inventario", "stock",
+    "firma", "presupuesto", "turno", "entrevista", "presentación", "presentacion",
+  )
+
   /** Phrases that only set the scene; the task starts after them. */
   private val LEADS = listOf(
     "pasado mañana", "para mañana", "mañana", "hoy", "para el", "para la",
@@ -34,7 +45,49 @@ object TaskText {
   )
 
   fun sentences(text: String): List<String> =
-    text.split(Regex("[.!?\\n;]+")).map { it.trim() }.filter { it.isNotEmpty() }
+    text.split(Regex("[.!?\\n;]+"))
+      .map { it.trim() }
+      .filter { it.isNotEmpty() }
+      .flatMap { splitOnConjunction(it) }
+
+  /** "y" joins two different tasks when what follows can stand on its own. */
+  private val CONJUNCTION = Regex("\\s+(?:y|e)\\s+", RegexOption.IGNORE_CASE)
+
+  private val CONNECTORS = listOf(
+    "también", "tambien", "después", "despues", "además", "ademas", "luego", "entonces",
+  )
+
+  private fun splitOnConjunction(sentence: String): List<String> {
+    val parts = sentence.split(CONJUNCTION)
+    if (parts.size < 2) return listOf(sentence)
+    val out = mutableListOf<String>()
+    var current = parts.first()
+    parts.drop(1).forEach { next ->
+      if (actionable(withoutConnector(next))) {
+        out += current.trim()
+        current = next
+      } else {
+        current = "$current y $next"
+      }
+    }
+    out += current.trim()
+    return out.filter { it.isNotBlank() }
+  }
+
+  private fun withoutConnector(text: String): String {
+    var clean = text.trim()
+    var changed = true
+    while (changed) {
+      changed = false
+      CONNECTORS.forEach { connector ->
+        if (clean.lowercase().startsWith(connector)) {
+          clean = clean.substring(connector.length).trimStart(' ', ',')
+          changed = true
+        }
+      }
+    }
+    return clean
+  }
 
   /** True when the sentence asks for something to be done. */
   fun actionable(sentence: String): Boolean {
@@ -42,7 +95,19 @@ object TaskText {
     if (lower.isEmpty()) return false
     if (MARKERS.any { lower.contains(it) }) return true
     val first = lower.split(Regex("[\\s,]+")).firstOrNull()?.trim(':') ?: return false
-    return ACTION_VERBS.any { verb -> first == verb || first.startsWith(stem(verb)) }
+    if (ACTION_VERBS.any { verb -> first == verb || first.startsWith(stem(verb)) }) return true
+    return mentionsTaskNoun(lower)
+  }
+
+  /**
+   * The noun has to open the sentence: "Reunión con el proveedor" is a task, while "estuvimos
+   * hablando del presupuesto" mentions one but does not ask for anything.
+   */
+  private fun mentionsTaskNoun(lower: String): Boolean {
+    val start = lower.replaceFirst(Regex("^(el|la|los|las|un|una|unos|unas)\\s+"), "")
+    return TASK_NOUNS.any { noun ->
+      start.startsWith(noun) && (start.length == noun.length || !start[noun.length].isLetter())
+    }
   }
 
   /** "a las 8", "8:30", "18 hs": a leading time only sets the scene too. */
@@ -77,21 +142,25 @@ object TaskText {
   }
 
   /**
-   * Every actionable sentence of a note, without duplicates, as ready-to-use titles. The title is
-   * only a candidate when the body says nothing actionable: "Limpieza" labels a note, while
+   * Every actionable sentence of a note, quoted as the user said it (before shortening). The title
+   * is only a candidate when the body says nothing actionable: "Limpieza" labels a note, while
    * "hay que limpiar los quirófanos" is the task.
    */
-  fun tasks(title: String, summary: String, transcript: String): List<String> {
-    val fromBody = (sentences(summary) + sentences(transcript)).asSequence()
+  fun taskSentences(title: String, summary: String, transcript: String): List<String> {
+    val fromBody = (sentences(summary) + sentences(transcript))
       .filter { actionable(it) }
+      .distinctBy { it.lowercase() }
+    if (fromBody.isNotEmpty()) return fromBody
+    return listOf(title).filter { actionable(it) }
+  }
+
+  /** The same tasks, cut to card-sized titles. */
+  fun tasks(title: String, summary: String, transcript: String): List<String> =
+    taskSentences(title, summary, transcript)
       .map { short(it) }
       .filter { it.isNotBlank() }
       .distinctBy { it.lowercase() }
       .take(6)
-      .toList()
-    if (fromBody.isNotEmpty()) return fromBody
-    return listOf(title).filter { actionable(it) }.map { short(it) }.filter { it.isNotBlank() }
-  }
 
   /**
    * ISO day hinted by the text: "hoy", "mañana", "pasado mañana" or a weekday name. "de la

@@ -79,7 +79,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.voicenotes.app.data.Folder
 import com.voicenotes.app.data.Note
 import com.voicenotes.app.ui.components.ActivityDraft
-import com.voicenotes.app.ui.components.ActivityEditorDialog
+import com.voicenotes.app.ui.components.ScheduleSuggestionsDialog
 import com.voicenotes.app.data.Tag
 import com.voicenotes.app.ui.NotesViewModel
 import com.voicenotes.app.ui.components.EmptyState
@@ -126,7 +126,7 @@ fun HomeScreen(
   val backupError by viewModel.backupError.collectAsStateWithLifecycle()
   var backupMessage by remember { mutableStateOf<String?>(null) }
   var doneFilter by remember { mutableStateOf(DoneFilter.ALL) }
-  var scheduling by remember { mutableStateOf<ActivityDraft?>(null) }
+  var scheduling by remember { mutableStateOf<List<ActivityDraft>?>(null) }
   var pendingRestore by remember { mutableStateOf<android.net.Uri?>(null) }
   var batchConfirm by remember { mutableStateOf(false) }
 
@@ -348,7 +348,10 @@ fun HomeScreen(
                 folderName = folders.firstOrNull { it.id == note.folderId }?.name,
                 onClick = { onOpenNote(note.id) },
                 onToggleDone = { done -> viewModel.setNoteDone(note.id, done) },
-                onSchedule = { scheduling = viewModel.suggestActivity(note.id) },
+                onSchedule = {
+                  val drafts = viewModel.suggestActivities(note.id)
+                  if (drafts.isNotEmpty()) scheduling = drafts
+                },
               )
             }
           }
@@ -382,13 +385,12 @@ fun HomeScreen(
     )
   }
 
-  scheduling?.let { draft ->
-    ActivityEditorDialog(
-      heading = "¿Agendar esta nota?",
-      draft = draft,
+  scheduling?.let { drafts ->
+    ScheduleSuggestionsDialog(
+      drafts = drafts,
       onDismiss = { scheduling = null },
-      onSave = { saved ->
-        viewModel.saveActivity(saved)
+      onSave = { chosen ->
+        viewModel.saveActivities(chosen)
         scheduling = null
       },
     )
