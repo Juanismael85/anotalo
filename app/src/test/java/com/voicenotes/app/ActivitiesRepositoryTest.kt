@@ -177,4 +177,50 @@ class ActivitiesRepositoryTest {
     assertFalse(repo.state.value.notes.first { it.id == id }.done)
     assertNull(repo.state.value.notes.first { it.id == id }.doneAt)
   }
+
+  // ---- S11: the date replaced the weekday ------------------------------------
+
+  @Test
+  fun `an old activity without a date moves to the next date of its weekday`() {
+    storage.data = """{"notes":[],"folders":[],"tags":[],"activities":[
+      {"id":"a1","title":"Revisar","dayOfWeek":1,"startMinutes":480}]}"""
+    val reopened = NotesRepository(storage) { 1_000L }
+    reopened.load()
+
+    val activity = reopened.state.value.activities.single()
+    // 1970-01-01 was a Thursday; the next Monday is the 5th.
+    assertEquals("1970-01-05", activity.date)
+    assertEquals(1, activity.dayOfWeek)
+    assertEquals("none", activity.repeat)
+    assertTrue(activity.repeatDays.isEmpty())
+  }
+
+  @Test
+  fun `a new activity keeps the date it was given`() {
+    val created = repo.createActivity(title = "Revisar", startMinutes = 480, date = "2026-11-20")
+
+    assertEquals("2026-11-20", created.date)
+    assertEquals(5, created.dayOfWeek)
+  }
+
+  @Test
+  fun `an activity saved with a date survives a reload`() {
+    repo.createActivity(
+      title = "Revisar",
+      startMinutes = 480,
+      date = "2026-11-20",
+      repeat = "weekly",
+      repeatUntil = "2026-12-31",
+      remind = true,
+    )
+
+    val reopened = NotesRepository(storage) { 1_000L }
+    reopened.load()
+
+    val activity = reopened.state.value.activities.single()
+    assertEquals("2026-11-20", activity.date)
+    assertEquals("weekly", activity.repeat)
+    assertEquals("2026-12-31", activity.repeatUntil)
+    assertTrue(activity.remind)
+  }
 }

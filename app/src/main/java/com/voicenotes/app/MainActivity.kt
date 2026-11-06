@@ -50,12 +50,15 @@ class MainActivity : ComponentActivity() {
 
   /** A tapped reminder notification asks for one note to be opened, also when the app is alive. */
   private val noteToOpen = MutableStateFlow<String?>(null)
+  /** S14 — an activity reminder opened the editor for this id. */
+  private val activityToOpen = MutableStateFlow<String?>(null)
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     enableEdgeToEdge()
     ReminderNotifications.ensureChannel(this)
     noteToOpen.value = intent?.getStringExtra(EXTRA_NOTE_ID)
+    activityToOpen.value = intent?.getStringExtra(EXTRA_ACTIVITY_ID)
     setContent {
       val viewModel: NotesViewModel = viewModel()
       val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
@@ -76,7 +79,7 @@ class MainActivity : ComponentActivity() {
           modifier = Modifier.fillMaxSize(),
           color = MaterialTheme.colorScheme.background,
         ) {
-          AppRoot(viewModel, noteToOpen)
+          AppRoot(viewModel, noteToOpen, activityToOpen)
         }
       }
     }
@@ -86,11 +89,15 @@ class MainActivity : ComponentActivity() {
     super.onNewIntent(intent)
     setIntent(intent)
     noteToOpen.value = intent.getStringExtra(EXTRA_NOTE_ID)
+    activityToOpen.value = intent.getStringExtra(EXTRA_ACTIVITY_ID)
   }
 
   companion object {
     const val EXTRA_NOTE_ID = "open_note_id"
     const val ACTION_OPEN_NOTE = "com.voicenotes.app.action.OPEN_NOTE"
+    /** S14 — the activity whose editor the reminder wants to open. */
+    const val EXTRA_ACTIVITY_ID = "open_activity_id"
+    const val ACTION_OPEN_ACTIVITY = "com.voicenotes.app.action.OPEN_ACTIVITY"
   }
 }
 
@@ -108,6 +115,7 @@ private sealed interface Route {
 private fun AppRoot(
   viewModel: NotesViewModel,
   noteToOpen: MutableStateFlow<String?>,
+  activityToOpen: MutableStateFlow<String?>,
 ) {
   var route by remember { mutableStateOf<Route>(Route.Home) }
   // Opening a note from the radar or the calendar returns there, not to the library.
@@ -116,12 +124,19 @@ private fun AppRoot(
   val context = LocalContext.current
   val reminderCount by viewModel.reminderCount.collectAsStateWithLifecycle()
   val requestedNote by noteToOpen.collectAsStateWithLifecycle()
+  val requestedActivity by activityToOpen.collectAsStateWithLifecycle()
 
   LaunchedEffect(requestedNote) {
     val id = requestedNote ?: return@LaunchedEffect
     previousTab = Route.Home
     route = Route.Detail(id)
     noteToOpen.value = null
+  }
+
+  // S14 — "Reprogramar" lands on the activity's editor, not on a list to search through.
+  LaunchedEffect(requestedActivity) {
+    if (requestedActivity == null) return@LaunchedEffect
+    route = Route.Activities
   }
 
   val selectTab: (AppTab) -> Unit = { tab ->
@@ -203,6 +218,8 @@ private fun AppRoot(
 
     Route.Activities -> ActivitiesScreen(
       viewModel = viewModel,
+      focusActivityId = requestedActivity,
+      onFocusConsumed = { activityToOpen.value = null },
       bottomBar = {
         AppBottomBar(
           selected = AppTab.ACTIVITIES,

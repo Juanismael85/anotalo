@@ -45,13 +45,13 @@ data class WorkConfig(
   val endMinutes: Int = 960,
 )
 
-/** S2 — one slot of the weekly activity schedule. */
+/** S2 — one slot of the agenda: a concrete date (S11), not a weekday. */
 @Serializable
 data class Activity(
   val id: String,
   val title: String,
-  /** ISO day number, 1 = Monday .. 7 = Sunday. */
-  val dayOfWeek: Int,
+  /** S11 — the day it is due, "2026-11-06"; blank only on data saved before S11. */
+  val date: String = "",
   /** Minutes from midnight when the activity starts. */
   val startMinutes: Int,
   /** "manual" or "ai": the AI only replaces its own activities, never the manual ones. */
@@ -61,12 +61,23 @@ data class Activity(
   val doneAt: Long? = null,
   /** S2 (agenda) — how long the block lasts; a point in time is not a plan. */
   val durationMinutes: Int = 60,
-  /** S2 (agenda) — other weekdays it repeats on besides [dayOfWeek]. Empty means a one-off. */
+  /** S12 — "none", "daily" or "weekly": the series is computed, never copied per date. */
+  val repeat: String = REPEAT_NONE,
+  /** S13 — last date of the series, null = until it is done. */
+  val repeatUntil: String? = null,
+  /** S14 — ask me when the occurrence is due. */
+  val remind: Boolean = false,
+  /** Derived from [date] (ISO 1..7); the weekday rules that predate S11 still read it. */
+  val dayOfWeek: Int = 1,
+  /** Deprecated by S11: the dated series replaced the weekday repeats. */
   val repeatDays: List<Int> = emptyList(),
 ) {
   companion object {
     const val SOURCE_MANUAL = "manual"
     const val SOURCE_AI = "ai"
+    const val REPEAT_NONE = "none"
+    const val REPEAT_DAILY = "daily"
+    const val REPEAT_WEEKLY = "weekly"
   }
 }
 
@@ -84,9 +95,15 @@ data class PlannedActivity(
  */
 data class NewActivity(
   val title: String,
-  val dayOfWeek: Int,
+  /** Legacy weekdays of the generator; the date wins when both are present. */
+  val dayOfWeek: Int = 1,
   val startMinutes: Int,
+  /** S11 — ISO date; blank means "the next [dayOfWeek] from today". */
+  val date: String = "",
   val durationMinutes: Int = ScheduleRules.DEFAULT_DURATION,
+  val repeat: String = Activity.REPEAT_NONE,
+  val repeatUntil: String? = null,
+  val remind: Boolean = false,
   val repeatDays: List<Int> = emptyList(),
   val noteId: String? = null,
 )

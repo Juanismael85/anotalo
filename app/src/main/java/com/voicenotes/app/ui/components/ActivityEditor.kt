@@ -23,6 +23,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.EventAvailable
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Switch
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilterChip
@@ -45,6 +50,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.voicenotes.app.data.Activity
+import com.voicenotes.app.data.ActivityDates
 import com.voicenotes.app.data.ScheduleRules
 import java.time.LocalDate
 
@@ -52,14 +59,27 @@ import java.time.LocalDate
 data class ActivityDraft(
   val id: String? = null,
   val title: String = "",
+  /** S11 — ISO date; blank seeds it from [dayOfWeek] the first time the dialog opens. */
+  val date: String = "",
   val dayOfWeek: Int = 1,
   val startMinutes: Int = 7 * 60,
   val durationMinutes: Int = ScheduleRules.DEFAULT_DURATION,
+  /** S12/S13 — "none", "daily" or "weekly" plus the last date of the series. */
+  val repeat: String = Activity.REPEAT_NONE,
+  val repeatUntil: String? = null,
+  /** S14 — ask me when the occurrence is due. */
+  val remind: Boolean = false,
   val repeatDays: List<Int> = emptyList(),
   val noteId: String? = null,
 )
 
 val durationChoices = listOf(30, 45, 60, 90, 120)
+
+val repeatChoices = listOf(
+  Activity.REPEAT_NONE to "No se repite",
+  Activity.REPEAT_DAILY to "Cada día",
+  Activity.REPEAT_WEEKLY to "Cada 7 días",
+)
 
 /** "07:30" — the schedule writes every hour the same way, with or without a leading zero. */
 fun clockText(minutes: Int): String = "%02d:%02d".format(minutes / 60 % 24, minutes % 60)
@@ -77,23 +97,30 @@ fun parseClockText(text: String): Int? = runCatching {
 /**
  * S1/S2 of the agenda block — one dialog for both ways in: "Agendar" a note and "Nueva actividad".
  * Nothing is written until the user confirms; a blank title or an impossible time stays on screen
- * with the reason.
+ * with the reason. S11/S12 — the activity now has a date and an optional series.
  */
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun ActivityEditorDialog(
   heading: String,
   draft: ActivityDraft,
   onDismiss: () -> Unit,
   onSave: (ActivityDraft) -> Unit,
-  today: Int = LocalDate.now().dayOfWeek.value,
+  today: LocalDate = LocalDate.now(),
 ) {
+  val startDate = remember(draft, today) {
+    ActivityDates.parse(draft.date) ?: ActivityDates.nextDateFor(draft.dayOfWeek, today)
+  }
   var title by remember(draft) { mutableStateOf(draft.title) }
-  var day by remember(draft) { mutableStateOf(draft.dayOfWeek) }
+  var date by remember(draft) { mutableStateOf(startDate) }
   var start by remember(draft) { mutableStateOf(clockText(draft.startMinutes)) }
   var duration by remember(draft) { mutableStateOf(draft.durationMinutes) }
-  var repeat by remember(draft) { mutableStateOf(draft.repeatDays.toSet()) }
+  var repeat by remember(draft) { mutableStateOf(draft.repeat) }
+  var until by remember(draft) { mutableStateOf(ActivityDates.parse(draft.repeatUntil)) }
+  var remind by remember(draft) { mutableStateOf(draft.remind) }
   var problem by remember { mutableStateOf<String?>(null) }
+  var pickingDate by remember { mutableStateOf(false) }
+  var pickingUntil by remember { mutableStateOf(false) }
 
   AlertDialog(
     onDismissRequest = onDismiss,
@@ -107,23 +134,33 @@ fun ActivityEditorDialog(
           singleLine = true,
         )
         Spacer(Modifier.padding(6.dp))
-        Text("Día", style = MaterialTheme.typography.titleSmall)
+        Text("Fecha", style = MaterialTheme.typography.titleSmall)
         FlowRow(
           horizontalArrangement = Arrangement.spacedBy(4.dp),
           verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
           FilterChip(
-            selected = day == today,
-            onClick = { day = today },
+            selected = true,
+            onClick = { pickingDate = true },
+            label = { Text(ActivityDates.shortLabel(date)) },
+            leadingIcon = {
+              Icon(
+                imageVector = Icons.Outlined.EventAvailable,
+                contentDescription = "Elegir fecha",
+                modifier = Modifier.size(18.dp),
+              )
+            },
+          )
+          FilterChip(
+            selected = date == today,
+            onClick = { date = today },
             label = { Text("Hoy") },
           )
-          (1..7).forEach { value ->
-            FilterChip(
-              selected = day == value,
-              onClick = { day = value },
-              label = { Text(dayNames[value - 1].take(2).replaceFirstChar { it.uppercase() }) },
-            )
-          }
+          FilterChip(
+            selected = date == today.plusDays(1),
+            onClick = { date = today.plusDays(1) },
+            label = { Text("Mañana") },
+          )
         }
         Spacer(Modifier.padding(6.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -149,16 +186,49 @@ fun ActivityEditorDialog(
           }
         }
         Spacer(Modifier.padding(6.dp))
-        Text("Repetir otros días (opcional)", style = MaterialTheme.typography.titleSmall)
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-          (1..7).forEach { value ->
-            if (value == day) return@forEach
+        Text("Repetición", style = MaterialTheme.typography.titleSmall)
+        FlowRow(
+          horizontalArrangement = Arrangement.spacedBy(4.dp),
+          verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+          repeatChoices.forEach { (value, label) ->
             FilterChip(
-              selected = value in repeat,
-              onClick = { repeat = if (value in repeat) repeat - value else repeat + value },
-              label = { Text(dayNames[value - 1].take(2).replaceFirstChar { it.uppercase() }) },
+              selected = repeat == value,
+              onClick = {
+                repeat = value
+                if (value == Activity.REPEAT_NONE) until = null
+              },
+              label = { Text(label) },
             )
           }
+        }
+        if (repeat != Activity.REPEAT_NONE) {
+          Spacer(Modifier.padding(4.dp))
+          FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            FilterChip(
+              selected = until == null,
+              onClick = { until = null },
+              label = { Text("Hasta cumplirla") },
+            )
+            FilterChip(
+              selected = until != null,
+              onClick = { pickingUntil = true },
+              label = {
+                Text(
+                  until?.let { "Hasta el ${ActivityDates.label(it, today)}" } ?: "Hasta una fecha",
+                )
+              },
+            )
+          }
+        }
+        Spacer(Modifier.padding(4.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          Text(
+            "Avisarme cuando toque",
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.weight(1f),
+          )
+          Switch(checked = remind, onCheckedChange = { remind = it })
         }
         if (draft.noteId != null) {
           Spacer(Modifier.padding(4.dp))
@@ -179,17 +249,23 @@ fun ActivityEditorDialog(
         onClick = {
           val minutes = parseClockText(start)
           val end = minutes?.plus(duration)
+          val untilDate = until
           when {
             title.isBlank() -> problem = "Poné un nombre a la actividad."
             minutes == null -> problem = "Hora inválida; usá el formato 7:30."
             end != null && end > 24 * 60 -> problem = "La actividad terminaría después de las 24:00."
+            untilDate != null && untilDate.isBefore(date) ->
+              problem = "La repetición no puede terminar antes de la fecha."
             else -> onSave(
               draft.copy(
                 title = title.trim(),
-                dayOfWeek = day,
+                date = ActivityDates.iso(date),
+                dayOfWeek = date.dayOfWeek.value,
                 startMinutes = minutes,
                 durationMinutes = duration,
-                repeatDays = repeat.filter { it != day }.sorted(),
+                repeat = repeat,
+                repeatUntil = untilDate?.let { ActivityDates.iso(it) },
+                remind = remind,
               ),
             )
           }
@@ -198,6 +274,52 @@ fun ActivityEditorDialog(
     },
     dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
   )
+
+  if (pickingDate) {
+    ActivityDatePickerDialog(
+      initial = date,
+      onDismiss = { pickingDate = false },
+      onPick = { picked ->
+        date = picked
+        pickingDate = false
+      },
+    )
+  }
+  if (pickingUntil) {
+    ActivityDatePickerDialog(
+      initial = until ?: date,
+      onDismiss = { pickingUntil = false },
+      onPick = { picked ->
+        until = picked
+        pickingUntil = false
+      },
+    )
+  }
+}
+
+/** The one date picker both fields share, so picking a day behaves the same everywhere. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ActivityDatePickerDialog(
+  initial: LocalDate,
+  onDismiss: () -> Unit,
+  onPick: (LocalDate) -> Unit,
+) {
+  val state = rememberDatePickerState(initialSelectedDateMillis = initial.toEpochDay() * 86_400_000L)
+  DatePickerDialog(
+    onDismissRequest = onDismiss,
+    confirmButton = {
+      TextButton(
+        onClick = {
+          val millis = state.selectedDateMillis
+          if (millis == null) onDismiss() else onPick(LocalDate.ofEpochDay(millis / 86_400_000L))
+        },
+      ) { Text("Listo") }
+    },
+    dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
+  ) {
+    DatePicker(state = state)
+  }
 }
 
 /**
@@ -210,7 +332,7 @@ fun ScheduleSuggestionsDialog(
   drafts: List<ActivityDraft>,
   onDismiss: () -> Unit,
   onSave: (List<ActivityDraft>) -> Unit,
-  today: Int = LocalDate.now().dayOfWeek.value,
+  today: LocalDate = LocalDate.now(),
 ) {
   var rows by remember(drafts) { mutableStateOf(drafts) }
   var selected by remember(drafts) { mutableStateOf(drafts.indices.toSet()) }
@@ -304,7 +426,7 @@ fun ScheduleSuggestionsDialog(
                     overflow = TextOverflow.Ellipsis,
                   )
                   Text(
-                    text = "${dayLabel(draft.dayOfWeek, today)} · " +
+                    text = "${ActivityDates.label(draftDay(draft, today), today)} · " +
                       "${clockText(draft.startMinutes)} · ${draft.durationMinutes} min",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -354,6 +476,12 @@ fun ScheduleSuggestionsDialog(
         rows = rows.toMutableList().also { it[index] = saved }
         editing = null
       },
+      today = today,
     )
   }
 }
+
+/** S11 — a suggestion may arrive with just a weekday; the label shows the date it will land on. */
+private fun draftDay(draft: ActivityDraft, today: LocalDate): LocalDate =
+  ActivityDates.parse(draft.date) ?: ActivityDates.nextDateFor(draft.dayOfWeek, today)
+

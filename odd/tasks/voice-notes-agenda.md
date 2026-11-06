@@ -31,8 +31,29 @@ Supuestos anotados: el aviso del día se arma a la hora de entrada configurada; 
 
 Compatibilidad: los campos nuevos van con default dentro de `Library`/`Activity` y el `Json` ya usa `ignoreUnknownKeys = true`, así que `notes.json` viejo sigue abriendo y uno nuevo lo ignora una versión vieja.
 
+- **S11** (fecha concreta): pedido verbatim "quiero que tengs ina fecha concreta y si quiero que se repita tambieb tebga esa opcion si diariamente hasta que se cumpla o semanal o en una gecha determinada".
+  - Criterios: toda actividad guarda una fecha ISO (`yyyy-MM-dd`) además de la hora de inicio. El editor pide la fecha con un selector de calendario y la muestra como "vie 6 nov". La agenda y el calendario ubican la actividad **solo en su fecha** (y en las ocurrencias de su repetición, si la tiene). Nada de "todos los lunes del mes".
+  - Migración: las actividades guardadas antes (día de semana, sin fecha) pasan a la **próxima** fecha de ese día de semana desde hoy, sin repetición. No se pierde ninguna.
+  - Supuesto: los `repeatDays` viejos ("repetir otros días") no se traducen, porque la repetición nueva es una serie con fecha de inicio y fin; se limpian al migrar.
+
+- **S12** (repetición opcional): pedido verbatim (misma frase).
+  - Criterios: tres modos en el editor — **No se repite** (por defecto), **Diaria hasta cumplirla**, **Semanal**. Una actividad **cumplida no vuelve a aparecer**: cumplirla termina la serie. La serie se **calcula, no se copia**: una sola fila por actividad, sin filas por fecha.
+  - Supuesto: "semanal" = cada 7 días contados desde la fecha de la actividad.
+
+- **S13** (la serie puede terminar en una fecha): pedido verbatim "o en una gecha determinada".
+  - Criterios: al elegir una repetición se puede fijar "hasta una fecha"; desde el día siguiente esa actividad ya no aparece ni avisa. Por defecto la serie dura "hasta que se cumpla".
+  - Supuesto: la frase "o en una fecha determinada" se interpreta como el fin de la serie, porque una actividad sin repetición ya es, en sí, una fecha concreta.
+
+- **S14** (recordatorio de actividad con respuesta): pedido verbatim "tambien que tenga la opcion de que si tiene recordatorio programado al notificarme me pregunte si ya establista o dibquisiera reprogramarla".
+  - Criterios: el editor tiene un interruptor **Avisarme**. A la hora de inicio de la ocurrencia llega una notificación con dos acciones: **"Ya está lista"** (marca cumplida y corta la serie) y **"Reprogramar"** (abre el editor de esa actividad para cambiar fecha u hora). Si se ignora, la serie sigue y vuelve a avisar en la próxima ocurrencia.
+  - Supuesto: el aviso suena en la hora de inicio de la actividad (no hay anticipación configurable en esta entrega).
+
 ## Tasks
 
+- [x] T9 (S11,S12,S13 · datos): `Activity.date/repeat/repeatUntil/remind`; `ActivityDates.occursOn/nextOn/nextDateFor`; migración de día de semana a fecha en `NotesRepository.load`; `dayOfWeek` pasa a derivarse de la fecha; tests `ActivityDatesTest` + migración en `ActivitiesRepositoryTest`.
+- [x] T10 (S11,S12,S13 · UI): editor con selector de fecha, chips de repetición y "hasta"; el calendario usa `occursOn` y deja de repetir por día de semana.
+- [x] T11 (S14 · recordatorio): alarma por ocurrencia con `AlarmManager`, notificación con "Ya está lista" y "Reprogramar", y reprogramación de la serie al cumplir o al posponer.
+- T12 (S11 · Actividades): agrupar por fecha ("Hoy", "Mañana", "vie 13 nov") en vez de por día de semana.
 - T1 (S2 · datos): `Activity.durationMinutes/repeatDays`, `ScheduleRules` (días de una actividad, solapamientos, sobrantes, siguiente día laboral), `NotesRepository.createActivity/updateActivity/moveActivities` + tests.
 - T2 (S1,S3 · lógica pura): `TaskText` (oraciones accionables, día y hora en lenguaje natural), `LocalSchedulePlanner` (reparto determinista), `TaskExtractor` (sugerencia para una nota) + tests.
 - T3 (S1,S2 · UI): `ActivityEditorDialog` compartido, alta/edición de actividad en Actividades, botón "Agendar" en la tarjeta del Home con sugerencia precargada, duración y repetición visibles + aviso de solapamiento.
@@ -110,4 +131,17 @@ Estado: T1–T8 implementadas, 187 tests verdes (eran 102 al empezar el bloque y
   - UI: subtítulo "N actividades · M con recordatorio", punto en el mes si hay actividad o recordatorio, lista del día con hora + título + duración/repetición, tap para editar, checkbox de cumplida.
   - Verde: `gradle testDebugUnitTest` → **187 tests, 0 fallos**. Build `versionCode 4`, `versionName 1.3`, 2.053.430 bytes.
   - Evidencia en dispositivo: instalado y verificado en pantalla (Calendario → "7 actividades · 1 con recordatorio"; 6 nov lista 09:00, 10:00, 11:30 y 14:00; puntos en todos los lunes y viernes del mes).
+
+- L13 (2026-11-06 · fecha concreta y repetición): pedido verbatim "quiero que tengs ina fecha concreta y si quiero que se repita tambieb tebga esa opcion si diariamente hasta que se cumpla o semanal o en una gecha determinada, tambien que tenga la opcion de que si tiene recordatorio programado al notificarme me pregunte si ya establista o dibquisiera reprogramarla".
+  - Corrección del usuario sobre la entrega anterior: "observa bien porque se estanyrepiendo en varias fechas y eso no lo he pedido". El calendario repetía cada actividad en todas las fechas de su día de semana. Se tomó como decisión propia (asumida en L12) y ahora se corrige con fecha concreta.
+  - Alcance de esta entrega: T9 + T10 (fecha, repetición, fin de serie y calendario). T11 (recordatorio con acciones) y T12 (Actividades por fecha) quedan para la siguiente.
+  - Fuera de alcance explícito: calendario del teléfono (Google/Xiaomi).
+
+- L14 (2026-11-06 · entrega T9/T10/T11): implementado y verificado en el teléfono.
+  - T9: `Activity.date/repeat/repeatUntil/remind`; `data/ActivityDates.kt` (`occursOn`, `nextOn`, `nextDateFor`, `label`, `shortLabel`); migración en `NotesRepository.load` (JSON viejo sin `date` → próxima fecha de su día de semana, `repeat = none`, `repeatDays` limpio); `dayOfWeek` ahora se deriva de la fecha en cada escritura.
+  - T10: el editor muestra la fecha real ("Vie 6 nov") con atajos "Hoy"/"Mañana" y selector de calendario, chips "No se repite / Cada día / Cada 7 días", "Hasta cumplirla / Hasta una fecha" y el interruptor "Avisarme cuando toque". El calendario usa `occursOn`.
+  - T11: `reminder/ActivityReminders` (`nextAt`), `ActivityReminderScheduler`, `ActivityReminderReceiver` (ACTION_FIRE/DONE/RESCHEDULE; al disparar reprograma la ocurrencia siguiente), `ActivityReminderNotifications` (canal `activities_v1`, acciones "Ya está lista"/"Reprogramar"); `MainActivity` enruta `EXTRA_ACTIVITY_ID` al editor de Actividades; `NotesViewModel` reprograma ante cada cambio de actividades; `BootReceiver` rearma tras reiniciar.
+  - Verde: `gradle testDebugUnitTest` → **201 tests, 0 fallos**.
+  - Aprobación visual (1.4, `versionCode 5`): el mes de noviembre solo marca el 6 y el 9; el 6 lista las 4 actividades del viernes (09:00, 10:00, 11:30, 14:00). El editor abre con "Vie 6 nov", repetición en "No se repite" y el interruptor de aviso.
+  - Pendiente: T12 (agrupar Actividades por fecha) y publicar el Release v1.4 (requiere confirmación).
 

@@ -52,7 +52,9 @@ import com.voicenotes.app.ui.components.ActivityDraft
 import com.voicenotes.app.ui.components.ActivityEditorDialog
 import com.voicenotes.app.ui.components.ScreenGradient
 import com.voicenotes.app.ui.components.clockText
-import com.voicenotes.app.ui.components.dayNames
+import com.voicenotes.app.data.ActivityDates
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.ZoneId
@@ -222,6 +224,9 @@ fun CalendarScreen(
               startMinutes = activity.startMinutes,
               durationMinutes = activity.durationMinutes,
               repeatDays = activity.repeatDays,
+              repeat = activity.repeat,
+              repeatUntil = activity.repeatUntil,
+              remind = activity.remind,
               noteId = activity.noteId,
             )
           },
@@ -320,7 +325,7 @@ fun CalendarScreen(
         viewModel.saveActivity(saved)
         editing = null
       },
-      today = today.dayOfWeek.value,
+      today = today,
     )
   }
 }
@@ -329,10 +334,13 @@ fun CalendarScreen(
 private fun activityMeta(activity: Activity): String =
   buildString {
     append("${activity.durationMinutes} min")
-    val extra = activity.repeatDays.filter { it != activity.dayOfWeek }.sorted()
-    if (extra.isNotEmpty()) {
-      append(" · repite ")
-      append(extra.joinToString(", ") { dayNames[it - 1] })
+    if (activity.repeat != Activity.REPEAT_NONE) {
+      append(" · ")
+      append(ActivityDates.repeatLabel(activity).lowercase())
+      ActivityDates.untilOf(activity)?.let { until ->
+        append(" hasta el ")
+        append(until.format(DateTimeFormatter.ofPattern("d MMM", Locale.forLanguageTag("es"))))
+      }
     }
   }
 

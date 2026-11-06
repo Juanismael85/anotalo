@@ -25,6 +25,7 @@ import com.voicenotes.app.data.NewActivity
 import com.voicenotes.app.data.LibraryStore
 import com.voicenotes.app.data.Tag
 import com.voicenotes.app.reminder.DailyAgendaScheduler
+import com.voicenotes.app.reminder.ActivityReminderScheduler
 import com.voicenotes.app.reminder.ReminderScheduler
 import com.voicenotes.app.reminder.ReminderTime
 import com.voicenotes.app.reminder.Reminders
@@ -122,11 +123,18 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
     importOrphanRecordings()
     // Alarms are lost on reboot, update or battery cleanup; opening the app re-arms them.
     scheduler.rescheduleAll(repository.state.value.notes)
+    val activityReminders = ActivityReminderScheduler(application)
+    activityReminders.rescheduleAll(repository.state.value.activities)
     val agendaScheduler = DailyAgendaScheduler(application)
     agendaScheduler.schedule(repository.state.value.workConfig)
     viewModelScope.launch {
       repository.state.map { it.workConfig }.distinctUntilChanged().collect { config ->
         agendaScheduler.schedule(config)
+      }
+    }
+    viewModelScope.launch {
+      repository.state.map { it.activities }.distinctUntilChanged().collect { activities ->
+        activityReminders.rescheduleAll(activities)
       }
     }
     viewModelScope.launch {
@@ -565,7 +573,11 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
           title = draft.title,
           dayOfWeek = draft.dayOfWeek,
           startMinutes = draft.startMinutes,
+          date = draft.date,
           durationMinutes = draft.durationMinutes,
+          repeat = draft.repeat,
+          repeatUntil = draft.repeatUntil,
+          remind = draft.remind,
           repeatDays = draft.repeatDays,
           noteId = draft.noteId,
         )
@@ -588,6 +600,10 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
         noteId = draft.noteId,
         durationMinutes = draft.durationMinutes,
         repeatDays = draft.repeatDays,
+        date = draft.date,
+        repeat = draft.repeat,
+        repeatUntil = draft.repeatUntil,
+        remind = draft.remind,
       )
       _scheduleStatus.value = "Actividad agregada al cronograma."
     } else {
@@ -598,6 +614,10 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
         startMinutes = draft.startMinutes,
         durationMinutes = draft.durationMinutes,
         repeatDays = draft.repeatDays,
+        date = draft.date,
+        repeat = draft.repeat,
+        repeatUntil = draft.repeatUntil,
+        remind = draft.remind,
       )
       _scheduleStatus.value = "Actividad actualizada."
     }

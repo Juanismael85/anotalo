@@ -62,6 +62,9 @@ import com.voicenotes.app.ui.NotesViewModel
 fun ActivitiesScreen(
   viewModel: NotesViewModel,
   bottomBar: @Composable () -> Unit,
+  /** S14 — the activity a reminder asked to reprogram; null when the screen was opened normally. */
+  focusActivityId: String? = null,
+  onFocusConsumed: () -> Unit = {},
 ) {
   val activities by viewModel.activities.collectAsStateWithLifecycle()
   val workConfig by viewModel.workConfig.collectAsStateWithLifecycle()
@@ -76,6 +79,29 @@ fun ActivitiesScreen(
   var showExport by remember { mutableStateOf(false) }
   var editorDraft by remember { mutableStateOf<ActivityDraft?>(null) }
   var editorHeading by remember { mutableStateOf("Nueva actividad") }
+
+  // S14 — "Reprogramar" in the reminder notification opens this activity's editor.
+  LaunchedEffect(focusActivityId, activities) {
+    val id = focusActivityId ?: return@LaunchedEffect
+    if (activities.isEmpty()) return@LaunchedEffect
+    activities.firstOrNull { it.id == id }?.let { activity ->
+      editorHeading = "Editar actividad"
+      editorDraft = ActivityDraft(
+        id = activity.id,
+        title = activity.title,
+        date = activity.date,
+        dayOfWeek = activity.dayOfWeek,
+        startMinutes = activity.startMinutes,
+        durationMinutes = activity.durationMinutes,
+        repeat = activity.repeat,
+        repeatUntil = activity.repeatUntil,
+        remind = activity.remind,
+        repeatDays = activity.repeatDays,
+        noteId = activity.noteId,
+      )
+    }
+    onFocusConsumed()
+  }
 
   androidx.compose.material3.Scaffold(
     containerColor = androidx.compose.ui.graphics.Color.Transparent,
@@ -211,7 +237,11 @@ fun ActivitiesScreen(
             editorDraft = ActivityDraft(
               id = activity.id,
               title = activity.title,
+              date = activity.date,
               dayOfWeek = activity.dayOfWeek,
+              repeat = activity.repeat,
+              repeatUntil = activity.repeatUntil,
+              remind = activity.remind,
               startMinutes = activity.startMinutes,
               durationMinutes = activity.durationMinutes,
               repeatDays = activity.repeatDays,

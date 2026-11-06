@@ -5,7 +5,17 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
 
 /** Minimal text storage so the repository stays testable without Android. */
 interface Storage {
@@ -75,7 +85,7 @@ class NotesRepository(
       _state.value = Library()
       return
     }
-    val decoded = runCatching { json.decodeFromString<Library>(raw) }.getOrNull()
+    val decoded = runCatching { json.decodeFromString<Library>(migrateActivities(raw)) }.getOrNull()
     if (decoded != null) {
       _state.value = decoded
       return
@@ -83,6 +93,37 @@ class NotesRepository(
     // Starting empty is only safe if the bytes stay recoverable: the next save rewrites the file.
     loadWarning = storage.preserveCorrupt(raw)
     _state.value = Library()
+  }
+
+  /** Today in the device zone, through the same clock the rest of the repository uses. */
+  private fun todayDate(): LocalDate =
+    Instant.ofEpochMilli(clock()).atZone(ZoneId.systemDefault()).toLocalDate()
+
+  /**
+   * S11 — files written before the activities had a date only carry a weekday. The activity moves to
+   * the next date of that weekday and the old weekday repeats are dropped, because the series is
+   * dated from now on. A file that already has dates is returned untouched.
+   */
+  private fun migrateActivities(raw: String): String {
+    val root = runCatching { json.parseToJsonElement(raw).jsonObject }.getOrNull() ?: return raw
+    val activities = (root["activities"] as? JsonArray) ?: return raw
+    var changed = false
+    val migrated = activities.map { element ->
+      val obj = element.jsonObject
+      val current = (obj["date"] as? JsonPrimitive)?.content
+      if (!current.isNullOrBlank()) return@map element
+      changed = true
+      val day = (obj["dayOfWeek"] as? JsonPrimitive)?.intOrNull ?: 1
+      JsonObject(
+        obj + mapOf(
+          "date" to JsonPrimitive(ActivityDates.iso(ActivityDates.nextDateFor(day, todayDate()))),
+          "repeat" to JsonPrimitive(Activity.REPEAT_NONE),
+          "repeatDays" to JsonArray(emptyList()),
+        ),
+      )
+    }
+    if (!changed) return raw
+    return json.encodeToString(JsonElement.serializer(), JsonObject(root + ("activities" to JsonArray(migrated))))
   }
 
   private fun commit(next: Library) {
@@ -429,18 +470,27 @@ class NotesRepository(
 
   fun createActivity(
     title: String,
-    dayOfWeek: Int,
+    dayOfWeek: Int = 0,
     startMinutes: Int,
     noteId: String? = null,
     durationMinutes: Int = ScheduleRules.DEFAULT_DURATION,
     repeatDays: List<Int> = emptyList(),
+    /** S11 — ISO date; blank falls back to the next [dayOfWeek]. */
+    date: String = "",
+    repeat: String = Activity.REPEAT_NONE,
+    repeatUntil: String? = null,
+    remind: Boolean = false,
   ): Activity = createActivities(
     listOf(
       NewActivity(
         title = title,
-        dayOfWeek = dayOfWeek,
+        dayOfWeek = if (dayOfWeek == 0) 1 else dayOfWeek,
         startMinutes = startMinutes,
+        date = date,
         durationMinutes = durationMinutes,
+        repeat = repeat,
+        repeatUntil = repeatUntil,
+        remind = remind,
         repeatDays = repeatDays,
         noteId = noteId,
       ),
@@ -454,14 +504,19 @@ class NotesRepository(
   fun createActivities(specs: List<NewActivity>): List<Activity> {
     if (specs.isEmpty()) return emptyList()
     val created = specs.map { spec ->
+      val date = ActivityDates.parse(spec.date) ?: ActivityDates.nextDateFor(spec.dayOfWeek, todayDate())
       Activity(
         id = newId("act"),
         title = spec.title.trim(),
-        dayOfWeek = spec.dayOfWeek.coerceIn(1, 7),
+        date = ActivityDates.iso(date),
         startMinutes = spec.startMinutes.coerceIn(0, 1439),
         source = Activity.SOURCE_MANUAL,
         noteId = spec.noteId,
         durationMinutes = spec.durationMinutes.coerceIn(ScheduleRules.MIN_DURATION, ScheduleRules.MAX_DURATION),
+        repeat = spec.repeat,
+        repeatUntil = spec.repeatUntil,
+        remind = spec.remind,
+        dayOfWeek = date.dayOfWeek.value,
         repeatDays = spec.repeatDays.filter { it in 1..7 }.distinct().sorted(),
       )
     }
@@ -473,20 +528,34 @@ class NotesRepository(
   fun updateActivity(
     id: String,
     title: String,
-    dayOfWeek: Int,
+    dayOfWeek: Int = 0,
     startMinutes: Int,
     durationMinutes: Int,
-    repeatDays: List<Int>,
+    repeatDays: List<Int> = emptyList(),
+    /** S11 — ISO date; blank keeps the stored date (or the next [dayOfWeek]). */
+    date: String = "",
+    repeat: String = Activity.REPEAT_NONE,
+    repeatUntil: String? = null,
+    remind: Boolean = false,
   ) {
+    val previous = _state.value.activities.firstOrNull { it.id == id } ?: return
+    val resolved = ActivityDates.parse(date)
+      ?: (if (dayOfWeek in 1..7) ActivityDates.nextDateFor(dayOfWeek, todayDate()) else null)
+      ?: ActivityDates.startOf(previous)
+      ?: return
     commit(
       _state.value.copy(
         activities = _state.value.activities.map {
           if (it.id == id) {
             it.copy(
               title = title.trim(),
-              dayOfWeek = dayOfWeek.coerceIn(1, 7),
+              date = ActivityDates.iso(resolved),
+              dayOfWeek = resolved.dayOfWeek.value,
               startMinutes = startMinutes.coerceIn(0, 1439),
               durationMinutes = durationMinutes.coerceIn(ScheduleRules.MIN_DURATION, ScheduleRules.MAX_DURATION),
+              repeat = repeat,
+              repeatUntil = repeatUntil,
+              remind = remind,
               repeatDays = repeatDays.filter { day -> day in 1..7 }.distinct().sorted(),
             )
           } else {
@@ -501,10 +570,11 @@ class NotesRepository(
   fun moveActivities(ids: Collection<String>, dayOfWeek: Int): Int {
     if (ids.isEmpty()) return 0
     var moved = 0
+    val target = ActivityDates.nextDateFor(dayOfWeek, todayDate())
     val updated = _state.value.activities.map {
       if (it.id in ids) {
         moved++
-        it.copy(dayOfWeek = dayOfWeek.coerceIn(1, 7))
+        it.copy(date = ActivityDates.iso(target), dayOfWeek = target.dayOfWeek.value)
       } else {
         it
       }
@@ -534,13 +604,16 @@ class NotesRepository(
   fun replaceAiActivities(planned: List<PlannedActivity>) {
     val kept = _state.value.activities.filter { it.source != Activity.SOURCE_AI }
     val created = planned.map {
+      // S11 — the generator still thinks in weekdays; each plan lands on its next real date.
+      val date = ActivityDates.nextDateFor(it.dayOfWeek, todayDate())
       Activity(
         id = newId("act"),
         title = it.title.trim(),
-        dayOfWeek = it.dayOfWeek.coerceIn(1, 7),
+        date = ActivityDates.iso(date),
         startMinutes = it.startMinutes.coerceIn(0, 1439),
         source = Activity.SOURCE_AI,
         noteId = it.noteId,
+        dayOfWeek = date.dayOfWeek.value,
       )
     }
     commit(_state.value.copy(activities = kept + created))

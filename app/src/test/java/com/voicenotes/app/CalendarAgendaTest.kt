@@ -1,27 +1,30 @@
 package com.voicenotes.app
 
+import com.voicenotes.app.data.Activity
+import com.voicenotes.app.data.ActivityDates
 import com.voicenotes.app.data.CalendarAgenda
 import com.voicenotes.app.data.NotesRepository
 import java.time.LocalDate
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
 /**
- * S10 (agenda) — el calendario de la app lee las mismas actividades del cronograma. Una actividad
- * cae en todas las fechas de su día, y editarla en cualquier lado la mueve en todos lados.
+ * S10/S11 — el calendario de la app lee las mismas actividades del cronograma. Ahora cada una tiene
+ * una fecha concreta y, si se repite, su serie: aparece solo en los días en que de verdad toca.
  */
 class CalendarAgendaTest {
 
   private lateinit var storage: FakeStorage
   private lateinit var repo: NotesRepository
 
-  // 2026-11-09 is a Monday; the fixture moves around it.
   private val monday = LocalDate.of(2026, 11, 9)
   private val tuesday = LocalDate.of(2026, 11, 10)
   private val wednesday = LocalDate.of(2026, 11, 11)
+  private val nextMonday = LocalDate.of(2026, 11, 16)
 
   @Before
   fun setUp() {
@@ -32,36 +35,78 @@ class CalendarAgendaTest {
 
   private fun activities() = repo.state.value.activities
 
+  private fun create(
+    title: String,
+    date: LocalDate = monday,
+    startMinutes: Int = 480,
+    repeat: String = Activity.REPEAT_NONE,
+    repeatUntil: String? = null,
+  ) = repo.createActivity(
+    title = title,
+    startMinutes = startMinutes,
+    date = date.toString(),
+    repeat = repeat,
+    repeatUntil = repeatUntil,
+  )
+
   @Test
-  fun `an activity shows on its weekday`() {
-    repo.createActivity("Revisar el stock", dayOfWeek = 1, startMinutes = 480)
+  fun `an activity shows only on its date`() {
+    create("Revisar el stock")
 
     val day = CalendarAgenda.onDay(activities(), monday)
 
     assertEquals(1, day.size)
     assertEquals("Revisar el stock", day.first().title)
-  }
-
-  @Test
-  fun `another weekday stays empty`() {
-    repo.createActivity("Revisar el stock", dayOfWeek = 1, startMinutes = 480)
-
     assertTrue(CalendarAgenda.onDay(activities(), tuesday).isEmpty())
-    assertFalse(CalendarAgenda.hasOn(activities(), tuesday))
+    assertTrue(CalendarAgenda.onDay(activities(), nextMonday).isEmpty())
+    assertFalse(CalendarAgenda.hasOn(activities(), nextMonday))
   }
 
   @Test
-  fun `a repeated day also shows`() {
-    repo.createActivity("Limpieza", dayOfWeek = 1, startMinutes = 420, repeatDays = listOf(3))
+  fun `a weekly series comes back every seven days`() {
+    create("Revisar el stock", repeat = Activity.REPEAT_WEEKLY)
 
     assertTrue(CalendarAgenda.onDay(activities(), monday).isNotEmpty())
+    assertTrue(CalendarAgenda.onDay(activities(), nextMonday).isNotEmpty())
+    assertTrue(CalendarAgenda.onDay(activities(), tuesday).isEmpty())
+  }
+
+  @Test
+  fun `a daily series shows every day`() {
+    create("Limpieza", repeat = Activity.REPEAT_DAILY)
+
+    assertTrue(CalendarAgenda.onDay(activities(), monday).isNotEmpty())
+    assertTrue(CalendarAgenda.onDay(activities(), tuesday).isNotEmpty())
     assertTrue(CalendarAgenda.onDay(activities(), wednesday).isNotEmpty())
+    assertTrue(CalendarAgenda.onDay(activities(), monday.minusDays(1)).isEmpty())
+  }
+
+  @Test
+  fun `the series stops on its last date`() {
+    create(
+      "Limpieza",
+      repeat = Activity.REPEAT_DAILY,
+      repeatUntil = tuesday.toString(),
+    )
+
+    assertTrue(CalendarAgenda.onDay(activities(), tuesday).isNotEmpty())
+    assertTrue(CalendarAgenda.onDay(activities(), wednesday).isEmpty())
+  }
+
+  @Test
+  fun `a finished activity stops the series but stays on its date`() {
+    val created = create("Revisar el stock", repeat = Activity.REPEAT_DAILY)
+
+    repo.setActivityDone(created.id, true)
+
+    assertTrue(CalendarAgenda.onDay(activities(), monday).isNotEmpty())
+    assertTrue(CalendarAgenda.onDay(activities(), tuesday).isEmpty())
   }
 
   @Test
   fun `the day is ordered by hour`() {
-    repo.createActivity("Tarde", dayOfWeek = 1, startMinutes = 900)
-    repo.createActivity("Temprano", dayOfWeek = 1, startMinutes = 420)
+    create("Tarde", startMinutes = 900)
+    create("Temprano", startMinutes = 420)
 
     val day = CalendarAgenda.onDay(activities(), monday)
 
@@ -69,16 +114,15 @@ class CalendarAgendaTest {
   }
 
   @Test
-  fun `editing the day moves the activity in the calendar`() {
-    val created = repo.createActivity("Revisar el stock", dayOfWeek = 1, startMinutes = 480)
+  fun `changing the date moves the activity in the calendar`() {
+    val created = create("Revisar el stock")
 
     repo.updateActivity(
       created.id,
       title = "Revisar el stock",
-      dayOfWeek = 2,
       startMinutes = 480,
       durationMinutes = 60,
-      repeatDays = emptyList(),
+      date = tuesday.toString(),
     )
 
     assertTrue(CalendarAgenda.onDay(activities(), monday).isEmpty())
@@ -86,16 +130,15 @@ class CalendarAgendaTest {
   }
 
   @Test
-  fun `editing the hour is reflected`() {
-    val created = repo.createActivity("Revisar el stock", dayOfWeek = 1, startMinutes = 480)
+  fun `changing the hour is reflected`() {
+    val created = create("Revisar el stock")
 
     repo.updateActivity(
       created.id,
       title = "Revisar el stock",
-      dayOfWeek = 1,
       startMinutes = 600,
       durationMinutes = 60,
-      repeatDays = emptyList(),
+      date = monday.toString(),
     )
 
     assertEquals(600, CalendarAgenda.onDay(activities(), monday).first().startMinutes)
@@ -103,10 +146,46 @@ class CalendarAgendaTest {
 
   @Test
   fun `deleting the activity clears the day`() {
-    val created = repo.createActivity("Revisar el stock", dayOfWeek = 1, startMinutes = 480)
+    val created = create("Revisar el stock")
 
     repo.deleteActivity(created.id)
 
     assertTrue(CalendarAgenda.onDay(activities(), monday).isEmpty())
+  }
+
+  // ---- S11/S12/S13, the pure rules ------------------------------------------------
+
+  @Test
+  fun `the next date of a weekday is that same day when it matches`() {
+    assertEquals(monday, ActivityDates.nextDateFor(1, monday))
+    assertEquals(nextMonday, ActivityDates.nextDateFor(1, tuesday))
+  }
+
+  @Test
+  fun `the next occurrence of a weekly series is seven days later`() {
+    val activity = Activity(
+      id = "a",
+      title = "Revisar",
+      date = monday.toString(),
+      startMinutes = 480,
+      repeat = Activity.REPEAT_WEEKLY,
+    )
+
+    assertEquals(monday, ActivityDates.nextOn(activity, monday))
+    assertEquals(nextMonday, ActivityDates.nextOn(activity, tuesday))
+  }
+
+  @Test
+  fun `a finished activity has no next occurrence`() {
+    val activity = Activity(
+      id = "a",
+      title = "Revisar",
+      date = monday.toString(),
+      startMinutes = 480,
+      repeat = Activity.REPEAT_DAILY,
+      done = true,
+    )
+
+    assertNull(ActivityDates.nextOn(activity, monday))
   }
 }
