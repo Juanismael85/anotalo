@@ -90,3 +90,9 @@ Estado: T1–T7 implementadas, 180 tests verdes (eran 102 al empezar el bloque y
   - Editor: chip "Hoy" delante de los siete días, en un `FlowRow` para que no se corte en pantallas angostas; el atajo setea el día ancla y no toca `repeatDays`.
   - Listas: las filas de "Agendar" muestran "Hoy · 08:00 · 60 min" y el cronograma titula "Hoy" el grupo del día actual.
   - Verde: `gradle testDebugUnitTest` → **180 tests, 0 fallos**.
+
+- L11 (2026-11-06 · release v1.2): pedido "si y instalalo aqui par aprobarlo".
+  - Publicación: Release **v1.2** (`https://github.com/Juanismael85/anotalo/releases/tag/v1.2`) con el asset `Anotalo-1.2.apk` (2.053.430 bytes, sha256 `89983717575a015eb54fe47ec862dd97b234687b81796128f2c165484b98e5d5`); descarga anónima 200 y hash coincidente con el APK local.
+  - Instalación: esta vez `adb install -r` respondió **Success** (la restricción de MIUI ya no está), así que la 1.2 quedó instalada encima de la 1.1 sin perder datos: `dumpsys package` → `versionCode=3`, `versionName=1.2`.
+  - Aprobación visual: la app abrió en el teléfono; el usuario tiene que tocar Actividades para ver el chip "Incluir hoy" y el editor para ver el chip "Hoy". No se hicieron taps a ciegas.
+
