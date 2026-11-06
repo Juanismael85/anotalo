@@ -18,7 +18,7 @@ Las versiones siguientes firmadas con la misma clave se actualizan encima **sin 
 
 - **Dictado**: hablás y el texto aparece en la nota; después lo editás como cualquier texto.
 - **Notas**: etiquetas, carpetas, búsqueda, audio adjunto de cada dictado.
-- **Agenda**: cada nota puede convertirse en una o varias actividades con día, hora, duración y repetición. Si la nota menciona varias tareas, la app las propone todas juntas y elegís cuáles van al cronograma. El cronograma también puede empezar hoy mismo: si hoy es día laboral y la jornada no terminó, el chip "Incluir hoy" (encendido por defecto) llena primero las horas que quedan. En el editor, el chip "Hoy" pone esa actividad en el día de hoy, y las filas dicen "Hoy" en vez de la abreviatura. Aviso diario a la hora de entrada, aviso de solapamientos y cierre del día con lo que quedó sin hacer.
+- **Agenda**: cada nota puede convertirse en una o varias actividades con día, hora, duración y repetición. Si la nota menciona varias tareas, la app las propone todas juntas y elegís cuáles van al cronograma. El cronograma también puede empezar hoy mismo: si hoy es día laboral y la jornada no terminó, el chip "Incluir hoy" (encendido por defecto) llena primero las horas que quedan. La pestaña Calendario muestra esas actividades en cada fecha de su día (y de sus días de repetición), con hora y duración; tocás una y la editás ahí mismo. En el editor, el chip "Hoy" pone esa actividad en el día de hoy, y las filas dicen "Hoy" en vez de la abreviatura. Aviso diario a la hora de entrada, aviso de solapamientos y cierre del día con lo que quedó sin hacer.
 - **IA opcional (Gemini)**: resumen, tareas y planificación del día. Se configura con una clave de API propia.
 
 ## La IA es opcional

@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material3.Card
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -40,19 +41,26 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.voicenotes.app.data.Activity
+import com.voicenotes.app.data.CalendarAgenda
 import com.voicenotes.app.reminder.CalendarGrid
 import com.voicenotes.app.reminder.ReminderFormat
 import com.voicenotes.app.reminder.ReminderTime
 import com.voicenotes.app.reminder.Reminders
 import com.voicenotes.app.ui.NotesViewModel
+import com.voicenotes.app.ui.components.ActivityDraft
+import com.voicenotes.app.ui.components.ActivityEditorDialog
 import com.voicenotes.app.ui.components.ScreenGradient
+import com.voicenotes.app.ui.components.clockText
+import com.voicenotes.app.ui.components.dayNames
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.ZoneId
 
 /**
- * S24 — month grid with a dot on every day that has a reminder. Picking a day lists its reminders
- * below, and tapping one opens the note.
+ * S24/S10 — month grid with a dot on every day that has a reminder or a scheduled activity. Picking
+ * a day lists its activities and its reminders below: an activity opens the shared editor, so the
+ * change shows up in the schedule at once, and a reminder opens its note.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -62,13 +70,16 @@ fun CalendarScreen(
   bottomBar: @Composable () -> Unit,
 ) {
   val notes by viewModel.allNotes.collectAsStateWithLifecycle()
+  val activities by viewModel.activities.collectAsStateWithLifecycle()
   val zone: ZoneId = remember { ZoneId.systemDefault() }
   val today = remember { LocalDate.now(zone) }
   var month by remember { mutableStateOf(YearMonth.from(today)) }
   var selected by remember { mutableStateOf(today) }
   val cells = remember(month) { CalendarGrid.month(month.year, month.monthValue) }
   val dayNotes = Reminders.onDay(notes, selected)
+  val dayActivities = CalendarAgenda.onDay(activities, selected)
   val withReminder = remember(notes) { notes.filter { it.reminderAt != null } }
+  var editing by remember { mutableStateOf<ActivityDraft?>(null) }
 
   Scaffold(
     containerColor = Color.Transparent,
@@ -78,7 +89,8 @@ fun CalendarScreen(
           Column {
             Text("Calendario", style = MaterialTheme.typography.headlineMedium)
             Text(
-              "${withReminder.size} con recordatorio",
+              "${activities.size} actividad${if (activities.size == 1) "" else "es"} · " +
+                "${withReminder.size} con recordatorio",
               style = MaterialTheme.typography.bodySmall,
               color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -136,7 +148,8 @@ fun CalendarScreen(
           week.forEach { cell ->
             val isSelected = cell.date == selected
             val isToday = cell.date == today
-            val marked = withReminder.any { ReminderTime.localDay(it.reminderAt!!, zone) == cell.date }
+            val marked = withReminder.any { ReminderTime.localDay(it.reminderAt!!, zone) == cell.date } ||
+              CalendarAgenda.hasOn(activities, cell.date)
             Box(
               modifier = Modifier
                 .weight(1f)
@@ -199,9 +212,58 @@ fun CalendarScreen(
       )
       Spacer(Modifier.height(8.dp))
 
-      if (dayNotes.isEmpty()) {
+      dayActivities.forEach { activity ->
+        Card(
+          onClick = {
+            editing = ActivityDraft(
+              id = activity.id,
+              title = activity.title,
+              dayOfWeek = activity.dayOfWeek,
+              startMinutes = activity.startMinutes,
+              durationMinutes = activity.durationMinutes,
+              repeatDays = activity.repeatDays,
+              noteId = activity.noteId,
+            )
+          },
+          modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+          colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
+          ),
+        ) {
+          Row(
+            modifier = Modifier.padding(start = 12.dp, end = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+          ) {
+            Text(
+              clockText(activity.startMinutes),
+              style = MaterialTheme.typography.labelLarge,
+              color = MaterialTheme.colorScheme.primary,
+            )
+            Spacer(Modifier.padding(start = 12.dp))
+            Column(Modifier.weight(1f)) {
+              Text(
+                activity.title,
+                style = MaterialTheme.typography.titleSmall,
+              )
+              Text(
+                activityMeta(activity),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+              )
+            }
+            Checkbox(
+              checked = activity.done,
+              onCheckedChange = { done -> viewModel.toggleActivityDone(activity.id, done) },
+            )
+          }
+        }
+      }
+
+      if (dayActivities.isEmpty() && dayNotes.isEmpty()) {
         Text(
-          "Sin recordatorios este día.",
+          "Sin actividades ni recordatorios este día.",
           style = MaterialTheme.typography.bodySmall,
           color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -248,6 +310,30 @@ fun CalendarScreen(
       Spacer(Modifier.height(96.dp))
     }
   }
+
+  editing?.let { draft ->
+    ActivityEditorDialog(
+      heading = "Editar actividad",
+      draft = draft,
+      onDismiss = { editing = null },
+      onSave = { saved ->
+        viewModel.saveActivity(saved)
+        editing = null
+      },
+      today = today.dayOfWeek.value,
+    )
+  }
 }
+
+/** "60 min · repite miércoles" — the line under the activity in the day list. */
+private fun activityMeta(activity: Activity): String =
+  buildString {
+    append("${activity.durationMinutes} min")
+    val extra = activity.repeatDays.filter { it != activity.dayOfWeek }.sorted()
+    if (extra.isNotEmpty()) {
+      append(" · repite ")
+      append(extra.joinToString(", ") { dayNames[it - 1] })
+    }
+  }
 
 private val weekdays = listOf("L", "M", "M", "J", "V", "S", "D")

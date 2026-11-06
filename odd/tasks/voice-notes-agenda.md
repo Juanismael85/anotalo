@@ -17,6 +17,11 @@ Branch: `feature/agenda-inteligente`. Tests: `gradle testDebugUnitTest` (JVM).
   - Supuesto: el título de la nota sigue siendo candidato cuando el cuerpo no tiene nada accionable (comportamiento previo).
 - **S8** (cronograma con hoy): "en la aplicacion que creamos 'anotalo' puedes agregar en la funcion de crear cronograma que tambien se pueda crear eligiendo el dia de hoy, osea las actividades del dia de hoy".
   - Criterios: al crear el cronograma (con IA o versión simple) el día de hoy cuenta cuando es un día laboral habilitado y la jornada todavía no terminó; si no, se usa el siguiente día laboral. La pantalla de Actividades muestra el chip "Incluir hoy" (encendido por defecto) para apagarlo y volver al comportamiento anterior; si hoy no aplica el chip queda deshabilitado y avisa por qué.
+- **S10** (calendario de la app con las actividades): pedido verbatim "quiero que las actividades se sincronicen con el mismo calendario de la app y claro si yo las edito se sincronicen tambien de acuerdo a la edicion verifica eso y que quede bien".
+  - Criterios: toda actividad del cronograma aparece en la pestaña Calendario, en **todas** las fechas de sus días (día ancla + días de repetición), ordenada por hora; el mes marca con punto los días que tienen actividades o recordatorios; el día elegido lista las actividades antes que los recordatorios; tocar una actividad abre el editor compartido y al guardar el cambio se ve al instante en Calendario y en Actividades; el check de cumplida también se puede tocar desde ahí.
+  - Supuesto: una actividad es semanal (día de la semana, no fecha), así que se repite en el calendario en cada semana del mes; no se crea ninguna copia por fecha.
+  - Fuera de alcance: el calendario del teléfono (Google/Xiaomi). La app no pide `READ_CALENDAR`/`WRITE_CALENDAR` y no escribe eventos del sistema.
+
 - **S9** (elegir hoy a mano): pregunta del usuario "puedo elegir qué actividades son para hoy?" y aprobación "ok si añadelo" del atajo propuesto.
   - Criterios: el editor de actividad muestra un chip **"Hoy"** antes de los siete días que pone el día de esa actividad en el día de hoy; las filas del diálogo de "Agendar" y el encabezado de cada día en el cronograma dicen **"Hoy"** cuando el día coincide, en vez de la abreviatura.
   - Supuesto: el atajo solo cambia el día ancla de **una** actividad; no toca el reparto de la IA, ni el chip "Incluir hoy", ni los días de repetición.
@@ -32,11 +37,12 @@ Compatibilidad: los campos nuevos van con default dentro de `Library`/`Activity`
 - T2 (S1,S3 · lógica pura): `TaskText` (oraciones accionables, día y hora en lenguaje natural), `LocalSchedulePlanner` (reparto determinista), `TaskExtractor` (sugerencia para una nota) + tests.
 - T3 (S1,S2 · UI): `ActivityEditorDialog` compartido, alta/edición de actividad en Actividades, botón "Agendar" en la tarjeta del Home con sugerencia precargada, duración y repetición visibles + aviso de solapamiento.
 - T4 (S4,S5 · dispositivo): aviso diario por `AlarmManager` (canal propio, reprogramado en boot y en cada arranque) + banda "quedaron N sin hacer · pasar a mañana".
+- T8 (S10 · calendario): `CalendarAgenda.onDay/hasOn` (puro); `CalendarScreen` lee `viewModel.activities`, pinta el punto del mes y lista las actividades del día con hora, duración y repetición; edición con `ActivityEditorDialog` y check de cumplida; tests en `CalendarAgendaTest` (incluye día y hora editados a nivel repositorio).
 - T7 (S9 · atajo): `DayLabels.kt` (`dayNames`, `shortDayName`, `dayLabel`), chip "Hoy" con `FlowRow` en `ActivityEditorDialog`, etiqueta "Hoy" en `ScheduleSuggestionsDialog` y en el encabezado de `WeeklySchedule`; tests en `DayLabelsTest`.
 - T6 (S8 · hoy): `ScheduleRules.startDay(config, today, nowMinutes, includeToday)`; `LocalSchedulePlanner.plan` rota los días para arrancar en ese día; `TaskExtractor.suggestAll`/`suggest`/`fallback` lo usan; `SchedulePlanner.prompt`/`parse` reciben el día y el permiso de hoy; `AiClient.generateSchedule` los propaga; `NotesViewModel.includeToday` + chip "Incluir hoy" en `ActivitiesScreen`; tests en `TodayScheduleTest`.
 - T5 (S7 · lote desde una nota): `TaskText.taskSentences` (oración original), sustantivos de tarea al inicio y corte por conjunción "y"; `TaskExtractor.suggestAll` (una propuesta por tarea, sin solapamiento, desborde al día siguiente); `NotesRepository.createActivities` (lote en una escritura); diálogo `ScheduleSuggestionsDialog` con checkboxes y edición por fila; cableado del Home + tests.
 
-Estado: T1–T7 implementadas, 180 tests verdes (eran 102 al empezar el bloque y 164 antes de S8). Verificación en dispositivo pendiente: la app no está instalada (MIUI bloquea la instalación por `adb`) y hay que tocar el APK en Descargas.
+Estado: T1–T8 implementadas, 187 tests verdes (eran 102 al empezar el bloque y 164 antes de S8). Verificación en dispositivo pendiente: la app no está instalada (MIUI bloquea la instalación por `adb`) y hay que tocar el APK en Descargas.
 
 ## Log
 
@@ -95,4 +101,13 @@ Estado: T1–T7 implementadas, 180 tests verdes (eran 102 al empezar el bloque y
   - Publicación: Release **v1.2** (`https://github.com/Juanismael85/anotalo/releases/tag/v1.2`) con el asset `Anotalo-1.2.apk` (2.053.430 bytes, sha256 `89983717575a015eb54fe47ec862dd97b234687b81796128f2c165484b98e5d5`); descarga anónima 200 y hash coincidente con el APK local.
   - Instalación: esta vez `adb install -r` respondió **Success** (la restricción de MIUI ya no está), así que la 1.2 quedó instalada encima de la 1.1 sin perder datos: `dumpsys package` → `versionCode=3`, `versionName=1.2`.
   - Aprobación visual: la app abrió en el teléfono; el usuario tiene que tocar Actividades para ver el chip "Incluir hoy" y el editor para ver el chip "Hoy". No se hicieron taps a ciegas.
+
+- L12 (2026-11-06 · calendario con actividades): pedido "quiero que las actividades se sincronicen con el mismo calendario de la app y claro si yo las edito se sincronicen tambien de acuerdo a la edicion".
+  - Diagnóstico previo: la pestaña Calendario solo leía `notes.filter { reminderAt != null }`; las actividades no aparecían y la app no tenía (ni tiene) acceso al calendario del teléfono.
+  - Rojo: `CalendarAgendaTest` (7 tests) antes del código; falló con `Unresolved reference 'CalendarAgenda'`.
+  - Lógica pura (`CalendarAgenda`): una actividad cae en cada fecha cuyo día de semana esté en `ScheduleRules.daysOf` (día ancla + repetición), ordenada por hora; `hasOn` alimenta el punto del mes.
+  - Sincronización: no hay copia ni caché — el Calendario lee `viewModel.activities` (el mismo `StateFlow` del repositorio), así que editar en Actividades o desde el propio calendario mueve la actividad en los dos lados. Probado a nivel repositorio: cambiar el día la saca del lunes y la pone en el martes; cambiar la hora se refleja.
+  - UI: subtítulo "N actividades · M con recordatorio", punto en el mes si hay actividad o recordatorio, lista del día con hora + título + duración/repetición, tap para editar, checkbox de cumplida.
+  - Verde: `gradle testDebugUnitTest` → **187 tests, 0 fallos**. Build `versionCode 4`, `versionName 1.3`, 2.053.430 bytes.
+  - Evidencia en dispositivo: instalado y verificado en pantalla (Calendario → "7 actividades · 1 con recordatorio"; 6 nov lista 09:00, 10:00, 11:30 y 14:00; puntos en todos los lunes y viernes del mes).
 
