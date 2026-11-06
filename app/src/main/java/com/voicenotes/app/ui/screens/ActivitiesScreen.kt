@@ -52,6 +52,7 @@ import com.voicenotes.app.export.ScheduleExporter
 import com.voicenotes.app.ui.components.ActivityDraft
 import com.voicenotes.app.ui.components.ActivityEditorDialog
 import com.voicenotes.app.ui.components.clockText
+import com.voicenotes.app.ui.components.dayLabel
 import com.voicenotes.app.ui.components.dayNames
 import com.voicenotes.app.ui.NotesViewModel
 
@@ -202,6 +203,7 @@ fun ActivitiesScreen(
         }
         WeeklySchedule(
           activities,
+          today = today,
           onToggleDone = { id, done -> viewModel.toggleActivityDone(id, done) },
           onDelete = viewModel::deleteActivity,
           onEdit = { activity ->
@@ -316,6 +318,7 @@ private fun WorkSummary(config: WorkConfig?) {
 @Composable
 private fun WeeklySchedule(
   activities: List<Activity>,
+  today: Int,
   onToggleDone: (String, Boolean) -> Unit,
   onDelete: (String) -> Unit,
   onEdit: (Activity) -> Unit,
@@ -324,7 +327,7 @@ private fun WeeklySchedule(
     val dayActivities = activities.filter { day in ScheduleRules.daysOf(it) }
     if (dayActivities.isEmpty()) return@forEach
     Text(
-      dayNames[day - 1].replaceFirstChar { it.uppercase() },
+      if (day == today) "Hoy" else dayNames[day - 1].replaceFirstChar { it.uppercase() },
       style = MaterialTheme.typography.titleMedium,
       modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
     )

@@ -17,6 +17,9 @@ Branch: `feature/agenda-inteligente`. Tests: `gradle testDebugUnitTest` (JVM).
   - Supuesto: el título de la nota sigue siendo candidato cuando el cuerpo no tiene nada accionable (comportamiento previo).
 - **S8** (cronograma con hoy): "en la aplicacion que creamos 'anotalo' puedes agregar en la funcion de crear cronograma que tambien se pueda crear eligiendo el dia de hoy, osea las actividades del dia de hoy".
   - Criterios: al crear el cronograma (con IA o versión simple) el día de hoy cuenta cuando es un día laboral habilitado y la jornada todavía no terminó; si no, se usa el siguiente día laboral. La pantalla de Actividades muestra el chip "Incluir hoy" (encendido por defecto) para apagarlo y volver al comportamiento anterior; si hoy no aplica el chip queda deshabilitado y avisa por qué.
+- **S9** (elegir hoy a mano): pregunta del usuario "puedo elegir qué actividades son para hoy?" y aprobación "ok si añadelo" del atajo propuesto.
+  - Criterios: el editor de actividad muestra un chip **"Hoy"** antes de los siete días que pone el día de esa actividad en el día de hoy; las filas del diálogo de "Agendar" y el encabezado de cada día en el cronograma dicen **"Hoy"** cuando el día coincide, en vez de la abreviatura.
+  - Supuesto: el atajo solo cambia el día ancla de **una** actividad; no toca el reparto de la IA, ni el chip "Incluir hoy", ni los días de repetición.
   - La misma regla alcanza la propuesta de "Agendar" de una nota: una nota sin pistas se propone para hoy cuando hay tiempo, y para el siguiente día laboral cuando la jornada ya terminó. Es un cambio deliberado de la regla previa ("sin pistas, siguiente día laboral"), pedido por el usuario.
 
 Supuestos anotados: el aviso del día se arma a la hora de entrada configurada; "reprogramar" mueve las actividades no repetidas al siguiente día laboral; la repetición semanal es un conjunto de días extra sobre el día ancla; la duración por defecto es 60 minutos.
@@ -29,10 +32,11 @@ Compatibilidad: los campos nuevos van con default dentro de `Library`/`Activity`
 - T2 (S1,S3 · lógica pura): `TaskText` (oraciones accionables, día y hora en lenguaje natural), `LocalSchedulePlanner` (reparto determinista), `TaskExtractor` (sugerencia para una nota) + tests.
 - T3 (S1,S2 · UI): `ActivityEditorDialog` compartido, alta/edición de actividad en Actividades, botón "Agendar" en la tarjeta del Home con sugerencia precargada, duración y repetición visibles + aviso de solapamiento.
 - T4 (S4,S5 · dispositivo): aviso diario por `AlarmManager` (canal propio, reprogramado en boot y en cada arranque) + banda "quedaron N sin hacer · pasar a mañana".
+- T7 (S9 · atajo): `DayLabels.kt` (`dayNames`, `shortDayName`, `dayLabel`), chip "Hoy" con `FlowRow` en `ActivityEditorDialog`, etiqueta "Hoy" en `ScheduleSuggestionsDialog` y en el encabezado de `WeeklySchedule`; tests en `DayLabelsTest`.
 - T6 (S8 · hoy): `ScheduleRules.startDay(config, today, nowMinutes, includeToday)`; `LocalSchedulePlanner.plan` rota los días para arrancar en ese día; `TaskExtractor.suggestAll`/`suggest`/`fallback` lo usan; `SchedulePlanner.prompt`/`parse` reciben el día y el permiso de hoy; `AiClient.generateSchedule` los propaga; `NotesViewModel.includeToday` + chip "Incluir hoy" en `ActivitiesScreen`; tests en `TodayScheduleTest`.
 - T5 (S7 · lote desde una nota): `TaskText.taskSentences` (oración original), sustantivos de tarea al inicio y corte por conjunción "y"; `TaskExtractor.suggestAll` (una propuesta por tarea, sin solapamiento, desborde al día siguiente); `NotesRepository.createActivities` (lote en una escritura); diálogo `ScheduleSuggestionsDialog` con checkboxes y edición por fila; cableado del Home + tests.
 
-Estado: T1–T6 implementadas, 176 tests verdes (eran 102 al empezar el bloque y 164 antes de S8). Verificación en dispositivo pendiente: la app no está instalada (MIUI bloquea la instalación por `adb`) y hay que tocar el APK en Descargas.
+Estado: T1–T7 implementadas, 180 tests verdes (eran 102 al empezar el bloque y 164 antes de S8). Verificación en dispositivo pendiente: la app no está instalada (MIUI bloquea la instalación por `adb`) y hay que tocar el APK en Descargas.
 
 ## Log
 
@@ -79,3 +83,10 @@ Estado: T1–T6 implementadas, 176 tests verdes (eran 102 al empezar el bloque y
   - IA: el prompt recibe el día de hoy y la instrucción de empezar hoy (o de no usar hoy si el chip está apagado); `parse` descarta hoy cuando `includeToday = false`, así el filtro no depende del modelo.
   - UI: chip "Incluir hoy" en Actividades, encendido por defecto; se deshabilita con el texto "Hoy no disponible" cuando hoy no es laboral o la jornada terminó.
   - Verde: `gradle testDebugUnitTest` → **176 tests, 0 fallos**.
+
+- L10 (2026-11-06 · elegir hoy a mano): el usuario preguntó "puedo elegir qué actividades son para hoy?"; se explicó que "Agendar" ya deja elegir una por una pero el editor solo muestra `Lu Ma Mi…` sin decir cuál es hoy, y aprobó el atajo con "ok si añadelo".
+  - Rojo: `DayLabelsTest` (4 tests) antes del código; falló con `Unresolved reference 'dayLabel'`.
+  - Se movieron `dayNames` y `shortDayName` a `DayLabels.kt` (sin Compose) para poder testearlos en JVM, y se sumó `dayLabel(day, today)` que devuelve "Hoy" cuando coincide.
+  - Editor: chip "Hoy" delante de los siete días, en un `FlowRow` para que no se corte en pantallas angostas; el atajo setea el día ancla y no toca `repeatDays`.
+  - Listas: las filas de "Agendar" muestran "Hoy · 08:00 · 60 min" y el cronograma titula "Hoy" el grupo del día actual.
+  - Verde: `gradle testDebugUnitTest` → **180 tests, 0 fallos**.

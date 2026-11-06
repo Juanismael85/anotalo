@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -44,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.voicenotes.app.data.ScheduleRules
+import java.time.LocalDate
 
 /** What the editor shows and returns: an activity before it exists, or one being edited. */
 data class ActivityDraft(
@@ -55,8 +58,6 @@ data class ActivityDraft(
   val repeatDays: List<Int> = emptyList(),
   val noteId: String? = null,
 )
-
-val dayNames = listOf("lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo")
 
 val durationChoices = listOf(30, 45, 60, 90, 120)
 
@@ -78,12 +79,14 @@ fun parseClockText(text: String): Int? = runCatching {
  * Nothing is written until the user confirms; a blank title or an impossible time stays on screen
  * with the reason.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ActivityEditorDialog(
   heading: String,
   draft: ActivityDraft,
   onDismiss: () -> Unit,
   onSave: (ActivityDraft) -> Unit,
+  today: Int = LocalDate.now().dayOfWeek.value,
 ) {
   var title by remember(draft) { mutableStateOf(draft.title) }
   var day by remember(draft) { mutableStateOf(draft.dayOfWeek) }
@@ -105,7 +108,15 @@ fun ActivityEditorDialog(
         )
         Spacer(Modifier.padding(6.dp))
         Text("Día", style = MaterialTheme.typography.titleSmall)
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        FlowRow(
+          horizontalArrangement = Arrangement.spacedBy(4.dp),
+          verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+          FilterChip(
+            selected = day == today,
+            onClick = { day = today },
+            label = { Text("Hoy") },
+          )
           (1..7).forEach { value ->
             FilterChip(
               selected = day == value,
@@ -189,12 +200,6 @@ fun ActivityEditorDialog(
   )
 }
 
-/** "Mar", "Mié": the three letters the schedule uses in every row. */
-fun shortDayName(dayOfWeek: Int): String =
-  dayNames.getOrElse(dayOfWeek - 1) { dayNames[0] }
-    .replaceFirstChar { it.uppercase() }
-    .take(3)
-
 /**
  * S1 of the agenda block — a note holds several tasks, so "Agendar" opens this list instead of a
  * single form: every task arrives ticked, each one can be edited, and only the ticked ones are
@@ -205,6 +210,7 @@ fun ScheduleSuggestionsDialog(
   drafts: List<ActivityDraft>,
   onDismiss: () -> Unit,
   onSave: (List<ActivityDraft>) -> Unit,
+  today: Int = LocalDate.now().dayOfWeek.value,
 ) {
   var rows by remember(drafts) { mutableStateOf(drafts) }
   var selected by remember(drafts) { mutableStateOf(drafts.indices.toSet()) }
@@ -298,7 +304,7 @@ fun ScheduleSuggestionsDialog(
                     overflow = TextOverflow.Ellipsis,
                   )
                   Text(
-                    text = "${shortDayName(draft.dayOfWeek)} · " +
+                    text = "${dayLabel(draft.dayOfWeek, today)} · " +
                       "${clockText(draft.startMinutes)} · ${draft.durationMinutes} min",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
