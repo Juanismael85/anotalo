@@ -15,6 +15,9 @@ Branch: `feature/agenda-inteligente`. Tests: `gradle testDebugUnitTest` (JVM).
 - **S7** (varias actividades por nota): "una nota con varias actividades" debe proponer **varias** actividades, todas vinculadas a la nota. Pedido del usuario (verbatim): "si procede mejoraloby que quede perfecto y moderno" — además del comportamiento, la pantalla de agendar tiene que verse actual.
   - Criterios: una nota con N tareas produce N propuestas; cada una hereda día y hora de su propia oración y, si no tiene, del resto de la nota; nunca se solapan (la siguiente empieza cuando termina la anterior); lo que no entra antes del cierre pasa al siguiente día laboral; el usuario destilda, edita y confirma; todo el lote se guarda en **una** escritura y queda con `noteId`.
   - Supuesto: el título de la nota sigue siendo candidato cuando el cuerpo no tiene nada accionable (comportamiento previo).
+- **S8** (cronograma con hoy): "en la aplicacion que creamos 'anotalo' puedes agregar en la funcion de crear cronograma que tambien se pueda crear eligiendo el dia de hoy, osea las actividades del dia de hoy".
+  - Criterios: al crear el cronograma (con IA o versión simple) el día de hoy cuenta cuando es un día laboral habilitado y la jornada todavía no terminó; si no, se usa el siguiente día laboral. La pantalla de Actividades muestra el chip "Incluir hoy" (encendido por defecto) para apagarlo y volver al comportamiento anterior; si hoy no aplica el chip queda deshabilitado y avisa por qué.
+  - La misma regla alcanza la propuesta de "Agendar" de una nota: una nota sin pistas se propone para hoy cuando hay tiempo, y para el siguiente día laboral cuando la jornada ya terminó. Es un cambio deliberado de la regla previa ("sin pistas, siguiente día laboral"), pedido por el usuario.
 
 Supuestos anotados: el aviso del día se arma a la hora de entrada configurada; "reprogramar" mueve las actividades no repetidas al siguiente día laboral; la repetición semanal es un conjunto de días extra sobre el día ancla; la duración por defecto es 60 minutos.
 
@@ -26,9 +29,10 @@ Compatibilidad: los campos nuevos van con default dentro de `Library`/`Activity`
 - T2 (S1,S3 · lógica pura): `TaskText` (oraciones accionables, día y hora en lenguaje natural), `LocalSchedulePlanner` (reparto determinista), `TaskExtractor` (sugerencia para una nota) + tests.
 - T3 (S1,S2 · UI): `ActivityEditorDialog` compartido, alta/edición de actividad en Actividades, botón "Agendar" en la tarjeta del Home con sugerencia precargada, duración y repetición visibles + aviso de solapamiento.
 - T4 (S4,S5 · dispositivo): aviso diario por `AlarmManager` (canal propio, reprogramado en boot y en cada arranque) + banda "quedaron N sin hacer · pasar a mañana".
+- T6 (S8 · hoy): `ScheduleRules.startDay(config, today, nowMinutes, includeToday)`; `LocalSchedulePlanner.plan` rota los días para arrancar en ese día; `TaskExtractor.suggestAll`/`suggest`/`fallback` lo usan; `SchedulePlanner.prompt`/`parse` reciben el día y el permiso de hoy; `AiClient.generateSchedule` los propaga; `NotesViewModel.includeToday` + chip "Incluir hoy" en `ActivitiesScreen`; tests en `TodayScheduleTest`.
 - T5 (S7 · lote desde una nota): `TaskText.taskSentences` (oración original), sustantivos de tarea al inicio y corte por conjunción "y"; `TaskExtractor.suggestAll` (una propuesta por tarea, sin solapamiento, desborde al día siguiente); `NotesRepository.createActivities` (lote en una escritura); diálogo `ScheduleSuggestionsDialog` con checkboxes y edición por fila; cableado del Home + tests.
 
-Estado: T1–T5 implementadas, 164 tests verdes (eran 102). Verificación en dispositivo pendiente: el teléfono está bloqueado con credencial y `screencap` devuelve negro.
+Estado: T1–T6 implementadas, 176 tests verdes (eran 102 al empezar el bloque y 164 antes de S8). Verificación en dispositivo pendiente: la app no está instalada (MIUI bloquea la instalación por `adb`) y hay que tocar el APK en Descargas.
 
 ## Log
 
@@ -65,3 +69,13 @@ Estado: T1–T5 implementadas, 164 tests verdes (eran 102). Verificación en dis
   - Verde: `gradle testDebugUnitTest` → **164 tests, 0 fallos**; `assembleRelease` → 2.053.426 bytes, `versionCode 2`, `versionName 1.1`.
   - Incidente honesto: el teléfono tenía instalado un build firmado con **otra** clave (cert `CN=Android Release`, SHA-256 `874F23B2…`), así que `install -r` rechazó tanto el debug como el release. Se hizo `pm uninstall -k` para conservar datos y el instalador MIUI pidió confirmación en pantalla ("Instalar vía USB"); en ese momento el teléfono estaba en uso y los taps de confirmación cayeron sobre WhatsApp abierto. **La app quedó desinstalada** hasta que el usuario confirme la instalación. Los datos de la app estaban vacíos (`notes: []`) al momento del respaldo, así que no había notas que perder; la clave de Gemini queda en las preferencias conservadas por `-k`.
   - La clave del APK publicado (v1.0) sí coincide con `keystore/anotalo-release.jks` (SHA-256 `524B4F41…`), verificado con `apksigner verify --print-certs`: las actualizaciones desde GitHub se instalan encima sin perder datos.
+
+- L9 (2026-11-06 · cronograma con hoy): pedido verbatim "en la aplicacion que creamos 'anotalo' puedes agregar en la funcion de crear cronograma que tambien se pueda crear eligiendo el dia de hoy, osea las actividades del dia de hoy".
+  - Diagnóstico: los dos caminos de generación arrancaban en el primer día configurado (lunes) y la propuesta de una nota usaba `nextWorkday`, así que un viernes a la mañana nada caía en viernes.
+  - Rojo: `TodayScheduleTest` (12 tests) escrito antes del código; falló con `Unresolved reference 'startDay'` y "No parameter with name 'today'".
+  - Regla nueva (`ScheduleRules.startDay`): hoy cuenta si es un día habilitado y `nowMinutes < endMinutes`; si no, `nextWorkday`. `includeToday = false` devuelve la regla vieja.
+  - Plan local: `LocalSchedulePlanner.plan` ordena los días rotando desde ese día (viernes → viernes, lunes, martes…) para que hoy se llene primero.
+  - Nota: `TaskExtractor.suggestAll` usa la misma regla; se actualizaron tres asserts de `LocalPlanningTest` que fijaban "siempre mañana".
+  - IA: el prompt recibe el día de hoy y la instrucción de empezar hoy (o de no usar hoy si el chip está apagado); `parse` descarta hoy cuando `includeToday = false`, así el filtro no depende del modelo.
+  - UI: chip "Incluir hoy" en Actividades, encendido por defecto; se deshabilita con el texto "Hoy no disponible" cuando hoy no es laboral o la jornada terminó.
+  - Verde: `gradle testDebugUnitTest` → **176 tests, 0 fallos**.

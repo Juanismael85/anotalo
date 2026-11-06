@@ -65,6 +65,26 @@ object ScheduleRules {
       .sortedWith(compareBy({ it.dayOfWeek }, { it.startMinutes }))
 
   /** The next enabled workday strictly after [today], wrapping around the week. */
+  /**
+   * S8 (agenda) — the day a new schedule starts on. Today counts when it is an enabled workday and
+   * the working day has not ended yet; otherwise it is the next workday. With [includeToday] off,
+   * the old behaviour comes back: never today.
+   */
+  fun startDay(
+    config: WorkConfig?,
+    today: Int,
+    nowMinutes: Int,
+    includeToday: Boolean = true,
+  ): Int {
+    val days = (config?.dayNumbers ?: (1..7).toList())
+      .filter { it in 1..7 }
+      .distinct()
+      .sorted()
+    if (days.isEmpty()) return if (today in 1..7) today else 1
+    val open = config == null || nowMinutes < config.endMinutes
+    return if (includeToday && today in days && open) today else nextWorkday(config, today)
+  }
+
   fun nextWorkday(config: WorkConfig?, today: Int): Int {
     val days = (config?.dayNumbers ?: (1..7).toList())
       .filter { it in 1..7 }

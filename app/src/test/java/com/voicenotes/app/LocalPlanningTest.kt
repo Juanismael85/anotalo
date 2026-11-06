@@ -141,7 +141,7 @@ class LocalPlanningTest {
   }
 
   @Test
-  fun `without hints the suggestion lands on the next working day at the start hour`() {
+  fun `without hints the suggestion lands on today at the start hour`() {
     val suggestion = TaskExtractor.suggest(
       title = "Instalar las lámparas",
       summary = "",
@@ -150,7 +150,7 @@ class LocalPlanningTest {
       today = 5,
     )
 
-    assertEquals(1, suggestion.dayOfWeek)
+    assertEquals(5, suggestion.dayOfWeek)
     assertEquals(420, suggestion.startMinutes)
   }
 
@@ -158,7 +158,7 @@ class LocalPlanningTest {
   fun `without a work config the suggestion still holds a sane default`() {
     val suggestion = TaskExtractor.suggest("Comprar guantes", "", "", config = null, today = 2)
 
-    assertEquals(3, suggestion.dayOfWeek)
+    assertEquals(2, suggestion.dayOfWeek)
     assertEquals(9 * 60, suggestion.startMinutes)
     assertEquals("Comprar guantes", suggestion.title)
   }
@@ -174,6 +174,6 @@ class LocalPlanningTest {
     )
 
     assertEquals("Reunión del comité", suggestion.title)
-    assertEquals(2, suggestion.dayOfWeek)
+    assertEquals(1, suggestion.dayOfWeek)
   }
 }

@@ -8,6 +8,7 @@ import androidx.lifecycle.viewModelScope
 import com.voicenotes.app.ai.AiClient
 import com.voicenotes.app.ai.ScheduleSource
 import java.time.LocalDate
+import java.time.LocalTime
 import com.voicenotes.app.data.ScheduleRules
 import com.voicenotes.app.ai.TaskExtractor
 import com.voicenotes.app.ai.LocalSchedulePlanner
@@ -499,6 +500,17 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
   private val _generating = MutableStateFlow(false)
   val generating: StateFlow<Boolean> = _generating.asStateFlow()
 
+  private val _includeToday = MutableStateFlow(true)
+
+  /** S8 — whether a generated schedule may use today's remaining hours. */
+  val includeToday: StateFlow<Boolean> = _includeToday.asStateFlow()
+
+  fun setIncludeToday(value: Boolean) {
+    _includeToday.value = value
+  }
+
+  private fun nowMinutes(): Int = LocalTime.now().let { it.hour * 60 + it.minute }
+
   fun saveWorkConfig(config: com.voicenotes.app.data.WorkConfig?) {
     repository.setWorkConfig(config)
   }
@@ -528,6 +540,7 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
       transcript = note.transcript.ifBlank { note.body },
       config = repository.state.value.workConfig,
       today = LocalDate.now().dayOfWeek.value,
+      nowMinutes = nowMinutes(),
     ).map { suggestion ->
       com.voicenotes.app.ui.components.ActivityDraft(
         title = suggestion.title,
@@ -597,7 +610,13 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
       _scheduleStatus.value = "Configurá tus días y horas de trabajo primero."
       return
     }
-    val plan = LocalSchedulePlanner.plan(config, scheduleSources())
+    val plan = LocalSchedulePlanner.plan(
+      config,
+      scheduleSources(),
+      today = LocalDate.now().dayOfWeek.value,
+      nowMinutes = nowMinutes(),
+      includeToday = _includeToday.value,
+    )
     if (plan.isEmpty()) {
       _fallbackOffered.value = false
       _scheduleStatus.value = "No encontré tareas para agendar. Cargá una nota con algo para hacer."
@@ -645,7 +664,14 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
       _generating.value = true
       val sources = scheduleSources()
       val outcome = runCatching {
-        aiClient.generateSchedule(_apiKey.value, _aiModel.value, config, sources)
+        aiClient.generateSchedule(
+          _apiKey.value,
+          _aiModel.value,
+          config,
+          sources,
+          today = LocalDate.now().dayOfWeek.value,
+          includeToday = _includeToday.value,
+        )
       }
       outcome.fold(
         onSuccess = { plan ->

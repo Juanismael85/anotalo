@@ -46,6 +46,8 @@ interface AiClient {
     model: String,
     config: com.voicenotes.app.data.WorkConfig,
     sources: List<ScheduleSource>,
+    today: Int? = null,
+    includeToday: Boolean = true,
   ): List<com.voicenotes.app.data.PlannedActivity>
 
   suspend fun check(apiKey: String, model: String): Result<Unit>
@@ -176,6 +178,8 @@ class GeminiClient(
     model: String,
     config: com.voicenotes.app.data.WorkConfig,
     sources: List<ScheduleSource>,
+    today: Int?,
+    includeToday: Boolean,
   ): List<com.voicenotes.app.data.PlannedActivity> {
     val key = apiKey.trim()
     if (key.isEmpty()) throw AiException("Configurá tu clave de API en Ajustes para usar la IA.")
@@ -185,7 +189,7 @@ class GeminiClient(
           buildJsonObject {
             put(
               "parts",
-              buildJsonArray { add(buildJsonObject { put("text", SchedulePlanner.prompt(config, sources)) }) },
+              buildJsonArray { add(buildJsonObject { put("text", SchedulePlanner.prompt(config, sources, today, includeToday)) }) },
             )
           },
         )
@@ -199,7 +203,7 @@ class GeminiClient(
     val response = post("$endpoint/models/${model.trim()}:generateContent?key=$key", body.toString())
     val text = extractText(response)
       ?: throw AiException("La IA no devolvió texto. Probá de nuevo.")
-    val plan = SchedulePlanner.parse(text, config, sources)
+    val plan = SchedulePlanner.parse(text, config, sources, today, includeToday)
     if (plan.isEmpty()) throw AiException("La IA no produjo actividades dentro del horario configurado.")
     return plan
   }

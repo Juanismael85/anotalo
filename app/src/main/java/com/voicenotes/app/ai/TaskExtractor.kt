@@ -32,12 +32,17 @@ object TaskExtractor {
     transcript: String,
     config: WorkConfig?,
     today: Int,
+    nowMinutes: Int = 0,
+    includeToday: Boolean = true,
   ): List<ActivitySuggestion> {
     val sentences = TaskText.taskSentences(title, summary, transcript)
     if (sentences.isEmpty()) return emptyList()
 
     val noteText = listOf(title, summary, transcript).joinToString(" ")
-    var day = (TaskText.dayHint(noteText, today) ?: ScheduleRules.nextWorkday(config, today)).coerceIn(1, 7)
+    var day = (
+      TaskText.dayHint(noteText, today)
+        ?: ScheduleRules.startDay(config, today, nowMinutes, includeToday)
+      ).coerceIn(1, 7)
     var cursor = TaskText.timeHint(noteText) ?: config?.startMinutes ?: DEFAULT_START
     if (config != null && cursor !in config.startMinutes until config.endMinutes) {
       cursor = config.startMinutes
@@ -80,9 +85,11 @@ object TaskExtractor {
     transcript: String,
     config: WorkConfig?,
     today: Int,
+    nowMinutes: Int = 0,
+    includeToday: Boolean = true,
   ): ActivitySuggestion =
-    suggestAll(title, summary, transcript, config, today).firstOrNull()
-      ?: fallback(title, summary, transcript, config, today)
+    suggestAll(title, summary, transcript, config, today, nowMinutes, includeToday).firstOrNull()
+      ?: fallback(title, summary, transcript, config, today, nowMinutes, includeToday)
 
   /** No task found: the note title still deserves a slot the user can edit before saving. */
   private fun fallback(
@@ -91,9 +98,14 @@ object TaskExtractor {
     transcript: String,
     config: WorkConfig?,
     today: Int,
+    nowMinutes: Int,
+    includeToday: Boolean,
   ): ActivitySuggestion {
     val text = listOf(title, summary, transcript).joinToString(" ")
-    val day = (TaskText.dayHint(text, today) ?: ScheduleRules.nextWorkday(config, today)).coerceIn(1, 7)
+    val day = (
+      TaskText.dayHint(text, today)
+        ?: ScheduleRules.startDay(config, today, nowMinutes, includeToday)
+      ).coerceIn(1, 7)
     val start = (TaskText.timeHint(text) ?: config?.startMinutes ?: DEFAULT_START).coerceIn(0, 1439)
     return ActivitySuggestion(
       title = TaskText.short(title.ifBlank { "Actividad" }),

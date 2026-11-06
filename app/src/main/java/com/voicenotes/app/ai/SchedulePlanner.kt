@@ -28,7 +28,12 @@ object SchedulePlanner {
   /** One-based, ISO numbering, so it matches [WorkConfig.dayNumbers]. */
   private val DAYS = listOf("lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo")
 
-  fun prompt(config: WorkConfig, sources: List<ScheduleSource>): String = buildString {
+  fun prompt(
+    config: WorkConfig,
+    sources: List<ScheduleSource>,
+    today: Int? = null,
+    includeToday: Boolean = true,
+  ): String = buildString {
     appendLine("Sos un asistente que arma un cronograma semanal de trabajo en español.")
     appendLine("Devolvé SOLO un array JSON, un elemento por actividad, sin explicaciones:")
     appendLine("""[{"title": "", "day": 1, "time": "07:30", "noteIndex": null}]""")
@@ -39,6 +44,15 @@ object SchedulePlanner {
     appendLine("Reglas: no inventes notas ni tareas que no estén en la lista; una nota sin")
     appendLine("tarea accionable se omite; si una nota menciona un plazo, respetalo dentro del")
     appendLine("horario; no repitas actividades idénticas; como máximo $MAX_ACTIVITIES actividades.")
+    if (today != null && today in 1..7) {
+      if (includeToday) {
+        appendLine("Hoy es ${DAYS[today - 1]} ($today). Si hoy es uno de esos días, empezá hoy mismo;")
+        appendLine("si no, arrancá por el día hábil siguiente.")
+      } else {
+        appendLine("Hoy es ${DAYS[today - 1]} ($today). No pongas actividades para hoy:")
+        appendLine("arrancá por el día hábil siguiente.")
+      }
+    }
     if (sources.isEmpty()) {
       appendLine("No hay notas: devolvé un array vacío.")
     } else {
@@ -50,7 +64,13 @@ object SchedulePlanner {
   }
 
   /** Accepts a bare array or an object with an "activities" key; anything invalid is dropped. */
-  fun parse(raw: String, config: WorkConfig, sources: List<ScheduleSource>): List<PlannedActivity> = runCatching {
+  fun parse(
+    raw: String,
+    config: WorkConfig,
+    sources: List<ScheduleSource>,
+    today: Int? = null,
+    includeToday: Boolean = true,
+  ): List<PlannedActivity> = runCatching {
     val root = Json.parseToJsonElement(raw)
     val entries = root.jsonArrayOrNull ?: root.jsonObject["activities"]?.jsonArrayOrNull
       ?: return emptyList()
@@ -64,6 +84,7 @@ object SchedulePlanner {
         val day = runCatching { obj["day"]?.jsonPrimitive?.contentTrimmedInt() }.getOrNull()?.takeIf { it in 1..7 }
           ?: return@mapNotNull null
         if (day !in config.dayNumbers) return@mapNotNull null
+        if (!includeToday && today != null && day == today) return@mapNotNull null
         val time = runCatching { obj["time"]?.jsonPrimitive?.content?.trim() }.getOrNull()
           ?.let { minutesOf(it) } ?: return@mapNotNull null
 

@@ -117,6 +117,15 @@ fun ActivitiesScreen(
       }
       Spacer(Modifier.padding(4.dp))
 
+      val now = LocalTime.now()
+      val today = LocalDate.now().dayOfWeek.value
+      val nowMinutes = now.hour * 60 + now.minute
+      val config = workConfig
+      val todayAvailable = config != null &&
+        today in config.dayNumbers &&
+        nowMinutes < config.endMinutes
+      val includeToday by viewModel.includeToday.collectAsStateWithLifecycle()
+
       Row(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -136,6 +145,24 @@ fun ActivitiesScreen(
         if (generating) CircularProgressIndicator(modifier = Modifier.padding(top = 8.dp))
       }
 
+      Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+      ) {
+        FilterChip(
+          selected = includeToday && todayAvailable,
+          onClick = { viewModel.setIncludeToday(!includeToday) },
+          enabled = todayAvailable && !generating,
+          label = { Text(if (todayAvailable) "Incluir hoy" else "Hoy no disponible") },
+        )
+        if (!todayAvailable) {
+          Text(
+            "Hoy no es día laboral o la jornada ya terminó.",
+            style = MaterialTheme.typography.bodySmall,
+          )
+        }
+      }
+
       if (fallbackOffered) {
         TextButton(onClick = { viewModel.generateScheduleLocally() }) {
           Text("Generar versión simple (sin IA)")
@@ -151,8 +178,6 @@ fun ActivitiesScreen(
 
       Spacer(Modifier.padding(8.dp))
 
-      val now = LocalTime.now()
-      val today = LocalDate.now().dayOfWeek.value
       val leftovers = ScheduleRules.leftovers(activities, today, now.hour * 60 + now.minute)
       if (leftovers.isNotEmpty()) {
         LeftoversCard(
